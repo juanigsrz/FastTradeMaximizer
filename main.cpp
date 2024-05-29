@@ -3,6 +3,7 @@
 // #pragma GCC target("avx,avx2,sse,sse2,sse3,sse4,popcnt")
 
 #include <bits/stdc++.h>
+#define long long long // XD
 
 using namespace std;
 
@@ -329,36 +330,172 @@ ostream& operator<<(ostream& o, __int128_t x) { return o << to_string(x); }
 
 #define INF 1e6
 
+struct Specimen {
+    int index;
+    string tag, name, username, fullName;
+    set<int> wishlist;
+};
+
+static map<string, Specimen> SpecimenList;
+static map<int, string> SpecimenByIndex;
+
+// Risk of stack overflow if input is too big
+regex specimenRegex{"^([^\\s]+)\\s*==>\\s*(.+?)\\s*\\(from\\s+(.+?)---(.+?)\\)$"};
+regex wishlistRegex{"^\\(([^)]+)---([^)]+)\\)\\s*([^:]+)\\s*:\\s*(.+)$"};
+
+int ItemCount;
+
+using namespace chrono;
+class timer: high_resolution_clock {
+    const time_point start_time;
+public:
+    timer(): start_time(now()) {}
+    rep elapsed_time() const { return duration_cast<milliseconds>(now()-start_time).count(); }
+};
+
 int main() {
+    timer T;
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
-    ios::sync_with_stdio(false), cin.tie(nullptr);
-    map<int,pair<int,int>> edge;
-    int V, E;
-    cin >> V >> E;
-    V *= 2;
+
+    string line;
+
+    while (getline(cin, line)) {
+        if(line.size() == 0) continue;
+        if(line[0] == '#') continue;
+        if(line == "!BEGIN-OFFICIAL-NAMES"){
+            while (getline(cin, line) and line != "!END-OFFICIAL-NAMES") {
+                smatch matches;
+
+                regex_search(line, matches, specimenRegex);
+                assert(SpecimenList.count(matches[1]) == 0);
+
+                int elems = SpecimenList.size();
+                SpecimenList[matches[1]] = {elems, matches[1], matches[2], matches[3], matches[4], {}};
+                SpecimenByIndex[elems] = matches[1];
+            }
+
+            ItemCount = SpecimenList.size();
+        } else {
+            // Wishlist
+            reverse(line.begin(), line.end());
+            istringstream iss(line);
+            string item;
+            vector<string> items;
+
+            while ( iss >> item and item[0] != ':' ) {
+                reverse(item.begin(), item.end());
+                items.push_back(item);
+            }
+            reverse(items.begin(), items.end());
+
+            iss >> item;
+            reverse(item.begin(), item.end());
+
+            if(not SpecimenList.count(item)){
+                int elems = SpecimenList.size();
+                SpecimenList[item].index = elems;
+                SpecimenByIndex[elems] = item;
+            }
+
+            for(const auto &i : items){
+                SpecimenList[item].wishlist.insert(SpecimenList[i].index);
+            }
+        }
+    }
+
+
+    int origV = SpecimenList.size(), origE = 0;
+    for(const auto& [key, s] : SpecimenList) origE += s.wishlist.size();
+
+    int V = origV * 2, E = origE + origV;
 
     network_simplex<long, long, __int128_t> ns(V);
-    for (int u = 0; u < V; u++) {
-        ns.add_supply(u, u < V / 2 ? 1 : -1);
+
+    // Simplex supply / demand
+    for (int v = 0; v < origV; v++) ns.add_supply(v, 1);
+    for (int v = origV; v < V; v++) ns.add_supply(v, -1);
+
+    vector<pair<int,int>> Edges;
+
+    for(const auto& [key, specimen] : SpecimenList){ // Wishlists
+        for(const auto& wishIndex : specimen.wishlist){
+            Edges.push_back({specimen.index, wishIndex + origV});
+            ns.add(specimen.index, wishIndex + origV, 0, 1, 1);
+        }
     }
 
-    for (int e = 0; e < E; e++) {
-        int u, v;
-        cin >> u >> v;
-        ns.add(u, v+V/2, 0, 1, 1);
-        edge[e] = {u,v};
+    for (int v = 0; v < origV; v++){ // Matching loop hack
+        Edges.push_back({v, v + origV});
+        ns.add(v, v + origV, 0, 1, INF);
     }
-    for (int e = 0; e < V / 2; e++) ns.add(e, e+V/2, 0, 1, INF);
-    E += V/2;
 
     if (!ns.mincost_circulation()) {
-        cout << "infeasible\n";
+        cout << "Malformed graph -- Input error / Critical bug\n";
+
         return 0;
     }
 
-    for (int e = 0; e < E - V/2; e++) {
-        if(ns.get_flow(e)) cout << edge[e].first << " -> " << edge[e].second << '\n';
+    // cout << "Circulation cost = " << ns.get_circulation_cost() << '\n';
+    map<int,int> solution;
+    for (int e = 0; e < origE; e++) {
+        if(ns.get_flow(e)){
+            assert(solution.count(Edges[e].first) == 0);
+            solution[Edges[e].first] = Edges[e].second;
+        }
     }
+
+    cout << "Solution count with dummies: " << solution.size() << endl;
+    cout << "ItemCount = " << ItemCount << endl;
+    cout << "origV = " << origV << endl;
+    cout << "V = " << V << endl;
+    cout << "origE = " << origE << endl;
+    cout << "E = " << E << endl;
+
+    map<int,int> clean;
+    for(auto [key, val] : solution){
+        if(key < ItemCount){ // Actual item to be sent
+            int trueVal = val;
+            
+            while(trueVal - origV >= ItemCount){
+                assert(solution.count(trueVal - origV) > 0);
+                trueVal = solution[trueVal - origV]; // find last node 
+            }
+
+            assert(clean.count(key) == 0);
+            clean[key] = trueVal - origV;
+        }
+    }
+
+    vector<vector<int>> groups;
+    map<int,bool> visit;
+    for(auto [key, val] : clean){
+        if(not visit[key]){
+            visit[key] = true;
+            groups.push_back({key});
+            int u = clean[key];
+            while(u != key){
+                visit[u] = true;
+                groups.back().push_back(u);
+                u = clean[u];
+            }
+        }
+    }
+    // sort(groups.begin(), groups.end(), greater<>());
+
+    for(auto& g : groups){
+        if(g.size() == 3){
+            cout << "For the group of size 3: " << endl;
+            for(int i = 0; i < 3; i++){
+                cout << g[i] << "( " << SpecimenList[SpecimenByIndex[g[i]]].name << " )" << endl;
+            }
+            
+        }
+    }
+
+    cout << "Clean up solution count: " << clean.size() << endl;
+    cout << "Groups: "; for(auto& g : groups) cout << g.size() << ' '; cout << endl;
+    cout << "Elapsed time: " << T.elapsed_time() << endl;
+
     return 0;
 }

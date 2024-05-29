@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+
+# IO
+input.txt
+output.txt

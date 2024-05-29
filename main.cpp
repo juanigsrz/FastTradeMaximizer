@@ -381,32 +381,45 @@ int main() {
             reverse(line.begin(), line.end());
             istringstream iss(line);
             string item;
-            vector<string> items;
+            vector<string> wishlist;
 
             while ( iss >> item and item[0] != ':' ) {
                 reverse(item.begin(), item.end());
-                items.push_back(item);
+                wishlist.push_back(item);
             }
-            reverse(items.begin(), items.end());
+            reverse(wishlist.begin(), wishlist.end());
 
             iss >> item;
             reverse(item.begin(), item.end());
+            // item = leftmost main item tag 
 
+            assert (SpecimenList.count(item) > 0 or item[0] == '%'); // Game declared before (or dummy)
             if(not SpecimenList.count(item)){
+                assert(item[0] == '%');
                 int elems = SpecimenList.size();
                 SpecimenList[item].index = elems;
-                SpecimenByIndex[elems] = item;
+                SpecimenByIndex[elems] = SpecimenList[item].tag = item;
             }
 
-            for(const auto &i : items){
-                SpecimenList[item].wishlist.insert(SpecimenList[i].index);
+            for(const auto &i : wishlist){
+                if(not SpecimenList.count(i)){ // Non-declared wishlisted
+                    assert(i[0] == '%'); // Should be a non-declared dummy
+                    int elems = SpecimenList.size();
+                    SpecimenList[i].index = elems;
+                    SpecimenByIndex[elems] = SpecimenList[i].tag = i;
+                }
+
+                SpecimenList[i].wishlist.insert(SpecimenList[item].index);
             }
         }
     }
 
+    cout << "Processed input after " << T.elapsed_time() << "ms" << endl;
 
     int origV = SpecimenList.size(), origE = 0;
-    for(const auto& [key, s] : SpecimenList) origE += s.wishlist.size();
+    for(const auto& [key, s] : SpecimenList){
+        origE += s.wishlist.size();
+    }
 
     int V = origV * 2, E = origE + origV;
 
@@ -437,20 +450,21 @@ int main() {
     }
 
     // cout << "Circulation cost = " << ns.get_circulation_cost() << '\n';
+    int nondummy = 0;
     map<int,int> solution;
     for (int e = 0; e < origE; e++) {
         if(ns.get_flow(e)){
             assert(solution.count(Edges[e].first) == 0);
             solution[Edges[e].first] = Edges[e].second;
+            if(SpecimenByIndex[Edges[e].first][0] != '%') nondummy++;
         }
     }
 
     cout << "Solution count with dummies: " << solution.size() << endl;
+    cout << "Solution count without dummies: " << nondummy << endl;
     cout << "ItemCount = " << ItemCount << endl;
-    cout << "origV = " << origV << endl;
-    cout << "V = " << V << endl;
-    cout << "origE = " << origE << endl;
-    cout << "E = " << E << endl;
+    cout << "origV = " << origV << ", V = " << V << endl;
+    cout << "origE = " << origE << ", E = " << E << endl;
 
     map<int,int> clean;
     for(auto [key, val] : solution){
@@ -463,7 +477,9 @@ int main() {
             }
 
             assert(clean.count(key) == 0);
-            clean[key] = trueVal - origV;
+            if(key != trueVal - origV){ // Self loop => Non traded item
+                clean[key] = trueVal - origV;
+            }
         }
     }
 
@@ -483,19 +499,19 @@ int main() {
     }
     // sort(groups.begin(), groups.end(), greater<>());
 
-    for(auto& g : groups){
-        if(g.size() == 3){
-            cout << "For the group of size 3: " << endl;
-            for(int i = 0; i < 3; i++){
-                cout << g[i] << "( " << SpecimenList[SpecimenByIndex[g[i]]].name << " )" << endl;
-            }
-            
-        }
-    }
 
     cout << "Clean up solution count: " << clean.size() << endl;
     cout << "Groups: "; for(auto& g : groups) cout << g.size() << ' '; cout << endl;
-    cout << "Elapsed time: " << T.elapsed_time() << endl;
+    cout << "Elapsed time: " << T.elapsed_time() << "ms" << endl;
+
+    cout << "Trades: " << endl;
+    for(auto [key, val] : clean){
+        Specimen _left = SpecimenList[SpecimenByIndex[key]];
+        Specimen _right = SpecimenList[SpecimenByIndex[val]];
+
+        cout << "(" << _left.name << " " << _left.username << "---" << _left.fullName <<  ") " << _left.tag << "\t ==> " ;
+        cout << "(" << _right.name << " " << _right.username << "---" << _right.fullName <<  ") " << _right.tag << "\n";
+    }
 
     return 0;
 }

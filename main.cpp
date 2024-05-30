@@ -3,9 +3,12 @@
 // #pragma GCC target("avx,avx2,sse,sse2,sse3,sse4,popcnt")
 
 #include <bits/stdc++.h>
-#define long long long // XD
+#define REQUIRE_COLON true
+#define REQUIRE_OFFICIAL_NAMES true
+#define REQUIRE_USERNAMES true
 
 using namespace std;
+using ll = long long;
 
 struct linked_lists {
     int L, N;
@@ -59,7 +62,7 @@ struct linked_lists {
 #define FOR_EACH_IN_LINKED_LIST_REVERSE(i, l, lists) \
     for (int z##i = l, i = lists.tail(z##i); i != lists.rep(z##i); i = lists.prev[i])
 
-template <typename Flow = long, typename Cost = long, typename CostSum = Cost>
+template <typename Flow = ll, typename Cost = ll, typename CostSum = Cost>
 struct network_simplex {
     explicit network_simplex(int V) : V(V), node(V + 1) {}
 
@@ -328,20 +331,17 @@ string to_string(__int128_t x) {
 ostream& operator<<(ostream& o, __int128_t x) { return o << to_string(x); }
 } // namespace std
 
-#define INF 1e6
+ll INF = 1e9;
 
 struct Specimen {
     int index;
-    string tag, name, username, fullName;
+    string tag, username;
     set<int> wishlist;
+    bool dummy;
 };
 
 static map<string, Specimen> SpecimenList;
 static map<int, string> SpecimenByIndex;
-
-// Risk of stack overflow if input is too big
-regex specimenRegex{"^([^\\s]+)\\s*==>\\s*(.+?)\\s*\\(from\\s+(.+?)---(.+?)\\)$"};
-regex wishlistRegex{"^\\(([^)]+)---([^)]+)\\)\\s*([^:]+)\\s*:\\s*(.+)$"};
 
 int ItemCount;
 
@@ -365,56 +365,95 @@ int main() {
         if(line[0] == '#') continue;
         if(line == "!BEGIN-OFFICIAL-NAMES"){
             while (getline(cin, line) and line != "!END-OFFICIAL-NAMES") {
-                smatch matches;
+                istringstream iss(line);
+                string tag;
 
-                regex_search(line, matches, specimenRegex);
-                assert(SpecimenList.count(matches[1]) == 0);
+                iss >> tag;
+                
+                assert(SpecimenList.count(tag) == 0); // Repeated tag in official names
 
                 int elems = SpecimenList.size();
-                SpecimenList[matches[1]] = {elems, matches[1], matches[2], matches[3], matches[4], {}};
-                SpecimenByIndex[elems] = matches[1];
+                SpecimenList[tag] = Specimen{
+                    .index = elems,
+                    .tag = tag,
+                    .dummy = false
+                };
+                SpecimenByIndex[elems] = tag;
             }
 
             ItemCount = SpecimenList.size();
         } else {
-            // Wishlist
-            reverse(line.begin(), line.end());
+            // Wishlists
             istringstream iss(line);
-            string item;
-            vector<string> wishlist;
+            string temp, username;
 
-            while ( iss >> item and item[0] != ':' ) {
-                reverse(item.begin(), item.end());
-                wishlist.push_back(item);
+            getline(iss, temp, '(');
+            getline(iss, username, ')');
+            assert(temp.size() == 0 and username.size() > 0);
+            
+            string tag;
+            iss >> tag;
+
+            if(REQUIRE_COLON){
+                if(tag.back() == ':'){
+                    tag.pop_back();
+                } else {
+                    getline(iss, temp, ':');
+                    /* beautify */
+                }
             }
-            reverse(wishlist.begin(), wishlist.end());
 
-            iss >> item;
-            reverse(item.begin(), item.end());
-            // item = leftmost main item tag 
-
-            assert (SpecimenList.count(item) > 0 or item[0] == '%'); // Game declared before (or dummy)
-            if(not SpecimenList.count(item)){
-                assert(item[0] == '%');
+            if(tag[0] == '%') tag += username;
+            if(not SpecimenList.count(tag)){
+                if(REQUIRE_OFFICIAL_NAMES) assert(tag[0] == '%'); // Must be a dummy not seen before
                 int elems = SpecimenList.size();
-                SpecimenList[item].index = elems;
-                SpecimenByIndex[elems] = SpecimenList[item].tag = item;
+                SpecimenList[tag].index = elems;
+                SpecimenByIndex[elems] = SpecimenList[tag].tag = tag;
+                SpecimenList[tag].dummy = tag[0] == '%';
             }
 
-            for(const auto &i : wishlist){
-                if(not SpecimenList.count(i)){ // Non-declared wishlisted
-                    assert(i[0] == '%'); // Should be a non-declared dummy
+            if(SpecimenList[tag].username == "") SpecimenList[tag].username = username;
+            else assert (SpecimenList[tag].username == username);
+
+            while(iss >> temp){
+                if(temp[0] == '%') temp += username;
+                if(not SpecimenList.count(temp)){
+                    if(REQUIRE_OFFICIAL_NAMES) assert(temp[0] == '%'); // Must be a dummy not seen before
                     int elems = SpecimenList.size();
-                    SpecimenList[i].index = elems;
-                    SpecimenByIndex[elems] = SpecimenList[i].tag = i;
+                    SpecimenList[temp].index = elems;
+                    SpecimenByIndex[elems] = SpecimenList[temp].tag = temp;
+                    SpecimenList[temp].dummy = temp[0] == '%';
                 }
 
-                SpecimenList[i].wishlist.insert(SpecimenList[item].index);
+                // assert(SpecimenList[temp].wishlist.count(SpecimenList[tag].index) == 0); // repeated edge
+                SpecimenList[temp].wishlist.insert(SpecimenList[tag].index);
             }
         }
     }
 
     cout << "Processed input after " << T.elapsed_time() << "ms" << endl;
+
+
+
+    // Check for errors
+    set<int> visitedIndex;
+    for(auto &[key, s] : SpecimenList){
+        assert(visitedIndex.count(s.index) == 0);
+        visitedIndex.insert(s.index);
+
+        assert(SpecimenByIndex.count(s.index));
+        if(not (SpecimenByIndex[s.index] == key and key == s.tag)){
+            cout << "SpecimenByIndex[s.index] = " << SpecimenByIndex[s.index] << endl;
+            cout << "s.index = " << s.index << endl;
+            cout << "key = " << key << endl;
+            cout << "s.tag = " << s.tag << endl;
+        }
+        assert(SpecimenByIndex[s.index] == key and key == s.tag);
+    }
+    assert(visitedIndex.size() == SpecimenList.size());
+    for(int i = 0; i < SpecimenList.size(); i++) assert(visitedIndex.count(i));
+    
+
 
     int origV = SpecimenList.size(), origE = 0;
     for(const auto& [key, s] : SpecimenList){
@@ -423,18 +462,21 @@ int main() {
 
     int V = origV * 2, E = origE + origV;
 
-    network_simplex<long, long, __int128_t> ns(V);
+    network_simplex<ll, ll, __int128_t> ns(V);
 
     // Simplex supply / demand
-    for (int v = 0; v < origV; v++) ns.add_supply(v, 1);
-    for (int v = origV; v < V; v++) ns.add_supply(v, -1);
+    for (int v = 0; v < origV; v++){
+        ns.add_supply(v, 1);
+        ns.add_supply(v + origV, -1);
+    } 
 
     vector<pair<int,int>> Edges;
 
     for(const auto& [key, specimen] : SpecimenList){ // Wishlists
         for(const auto& wishIndex : specimen.wishlist){
+            assert(specimen.index != wishIndex);
             Edges.push_back({specimen.index, wishIndex + origV});
-            ns.add(specimen.index, wishIndex + origV, 0, 1, 1);
+            ns.add(specimen.index, wishIndex + origV, 0, 1, 1); /* Cost can probably be changed to 0 and INF to 1 */
         }
     }
 
@@ -443,41 +485,54 @@ int main() {
         ns.add(v, v + origV, 0, 1, INF);
     }
 
-    if (!ns.mincost_circulation()) {
+    if (ns.mincost_circulation() == 0) {
         cout << "Malformed graph -- Input error / Critical bug\n";
 
         return 0;
     }
 
     // cout << "Circulation cost = " << ns.get_circulation_cost() << '\n';
-    int nondummy = 0;
     map<int,int> solution;
     for (int e = 0; e < origE; e++) {
         if(ns.get_flow(e)){
             assert(solution.count(Edges[e].first) == 0);
             solution[Edges[e].first] = Edges[e].second;
-            if(SpecimenByIndex[Edges[e].first][0] != '%') nondummy++;
+            assert(SpecimenByIndex[Edges[e].first].size() > 0);
         }
     }
 
-    cout << "Solution count with dummies: " << solution.size() << endl;
-    cout << "Solution count without dummies: " << nondummy << endl;
+    for (int e = origE; e < E; e++) {
+        if(ns.get_flow(e)){
+            if(SpecimenByIndex[Edges[e].first][0] != '%'){
+                // Non traded game --- SpecimenByIndex[Edges[e].first]
+            }
+        }
+    }
+
+    cout << "Solution count with dummy trades: " << solution.size() << endl;
     cout << "ItemCount = " << ItemCount << endl;
+    cout << "ItemCount with dummies = " << SpecimenList.size() << endl;
     cout << "origV = " << origV << ", V = " << V << endl;
     cout << "origE = " << origE << ", E = " << E << endl;
 
     map<int,int> clean;
     for(auto [key, val] : solution){
-        if(key < ItemCount){ // Actual item to be sent
+        if(not SpecimenList[SpecimenByIndex[key]].dummy){ // Actual item to be sent
             int trueVal = val;
-            
-            while(trueVal - origV >= ItemCount){
-                assert(solution.count(trueVal - origV) > 0);
-                trueVal = solution[trueVal - origV]; // find last node 
+
+            while(SpecimenList[SpecimenByIndex[trueVal - origV]].dummy){
+                trueVal = solution[trueVal - origV];
             }
 
+            /*
+            while(trueVal - origV >= ItemCount){ // find last node that's not an actual node
+                assert(solution.count(trueVal - origV) > 0);
+                trueVal = solution[trueVal - origV]; 
+            }
+            */
+
             assert(clean.count(key) == 0);
-            if(key != trueVal - origV){ // Self loop => Non traded item
+            if(key != trueVal - origV){ // Self loop implies a non traded item
                 clean[key] = trueVal - origV;
             }
         }
@@ -497,20 +552,23 @@ int main() {
             }
         }
     }
-    // sort(groups.begin(), groups.end(), greater<>());
+    sort(groups.begin(), groups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); });
 
 
     cout << "Clean up solution count: " << clean.size() << endl;
-    cout << "Groups: "; for(auto& g : groups) cout << g.size() << ' '; cout << endl;
+    cout << "Groups (" << groups.size() << "): "; for(auto& g : groups) cout << g.size() << ' '; cout << endl;
     cout << "Elapsed time: " << T.elapsed_time() << "ms" << endl;
 
     cout << "Trades: " << endl;
-    for(auto [key, val] : clean){
-        Specimen _left = SpecimenList[SpecimenByIndex[key]];
-        Specimen _right = SpecimenList[SpecimenByIndex[val]];
+    for(auto &g : groups){
+        for(int i = 0; i < g.size(); i++){
+            const Specimen& _left = SpecimenList[SpecimenByIndex[g[i]]];
+            const Specimen& _right = SpecimenList[SpecimenByIndex[g[(i+1)%g.size()]]];
 
-        cout << "(" << _left.name << " " << _left.username << "---" << _left.fullName <<  ") " << _left.tag << "\t ==> " ;
-        cout << "(" << _right.name << " " << _right.username << "---" << _right.fullName <<  ") " << _right.tag << "\n";
+            cout << "(" << _left.username << ") " << _left.tag << "\t ==> " ;
+            cout << "(" << _right.username << ") " << _right.tag << '\n';
+        }
+        cout << '\n';
     }
 
     return 0;

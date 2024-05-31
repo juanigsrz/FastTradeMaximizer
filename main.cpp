@@ -436,27 +436,18 @@ int main() {
 
     cout << "Processed input after " << T.elapsed_time() << "ms" << endl;
 
-
-
-    // Check for errors
+    // Check for bug-caused errors
+    /*
     set<int> visitedIndex;
     for(auto &[key, s] : SpecimenList){
         assert(visitedIndex.count(s.index) == 0);
         visitedIndex.insert(s.index);
-
         assert(SpecimenByIndex.count(s.index));
-        if(not (SpecimenByIndex[s.index] == key and key == s.tag)){
-            cout << "SpecimenByIndex[s.index] = " << SpecimenByIndex[s.index] << endl;
-            cout << "s.index = " << s.index << endl;
-            cout << "key = " << key << endl;
-            cout << "s.tag = " << s.tag << endl;
-        }
         assert(SpecimenByIndex[s.index] == key and key == s.tag);
     }
     assert(visitedIndex.size() == SpecimenList.size());
     for(int i = 0; i < SpecimenList.size(); i++) assert(visitedIndex.count(i));
-    
-
+    */
 
     int origV = SpecimenList.size(), origE = 0;
     for(const auto& [key, s] : SpecimenList){
@@ -501,7 +492,6 @@ int main() {
         return 0;
     }
 
-    // cout << "Circulation cost = " << ns.get_circulation_cost() << '\n';
     map<int, int> solution;
     for (int e = 0; e < origE; e++) {
         if(ns.get_flow(e)){
@@ -512,8 +502,8 @@ int main() {
     }
 
     cout << "Solution count with dummy trades: " << solution.size() << endl;
-    cout << "ItemCount = " << ItemCount << endl;
-    cout << "ItemCount with dummies = " << SpecimenList.size() << endl;
+    cout << "Official item count = " << ItemCount << endl;
+    cout << "Item count with dummies = " << SpecimenList.size() << endl;
     cout << "origV = " << origV << ", V = " << V << endl;
     cout << "origE = " << origE << ", E = " << E << endl;
 
@@ -526,13 +516,6 @@ int main() {
             while(SpecimenList[SpecimenByIndex[trueVal - origV]].dummy){
                 trueVal = solution[trueVal - origV];
             }
-
-            /*
-            while(trueVal - origV >= ItemCount){ // find last node that's not an actual node
-                assert(solution.count(trueVal - origV) > 0);
-                trueVal = solution[trueVal - origV]; 
-            }
-            */
 
             assert(clean.count(key) == 0);
             if(key != trueVal - origV){ // Self loop implies a non traded item
@@ -555,7 +538,7 @@ int main() {
             }
         }
     }
-    sort(groups.begin(), groups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); });
+    sort(groups.begin(), groups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
 
 
     cout << "Clean up solution count: " << clean.size() << endl;

@@ -4,7 +4,7 @@
 
 #include <bits/stdc++.h>
 #define REQUIRE_COLON true
-#define REQUIRE_OFFICIAL_NAMES true
+#define REQUIRE_OFFICIAL_NAMES false
 #define REQUIRE_USERNAMES true
 
 using namespace std;
@@ -355,6 +355,7 @@ public:
 
 int main() {
     timer T;
+    cin.tie(NULL)->sync_with_stdio(false);
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
 
@@ -387,9 +388,11 @@ int main() {
             istringstream iss(line);
             string temp, username;
 
-            getline(iss, temp, '(');
-            getline(iss, username, ')');
-            assert(temp.size() == 0 and username.size() > 0);
+            if(REQUIRE_USERNAMES){
+                getline(iss, temp, '(');
+                getline(iss, username, ')');
+                assert(temp.size() == 0 and username.size() > 0);
+            }
             
             string tag;
             iss >> tag;
@@ -476,9 +479,16 @@ int main() {
         for(const auto& wishIndex : specimen.wishlist){
             assert(specimen.index != wishIndex);
             Edges.push_back({specimen.index, wishIndex + origV});
-            ns.add(specimen.index, wishIndex + origV, 0, 1, 1); /* Cost can probably be changed to 0 and INF to 1 */
+
+            /* Cost could possibly be changed to 0 and INF to 1 */
+            ll cost = 1;
+
+            // if(specimen.dummy) cost = INF;
+            if(specimen.dummy) cost = INF;
+            ns.add(specimen.index, wishIndex + origV, 0, 1, cost); 
         }
     }
+    assert(origE == Edges.size());
 
     for (int v = 0; v < origV; v++){ // Matching loop hack
         Edges.push_back({v, v + origV});
@@ -486,26 +496,18 @@ int main() {
     }
 
     if (ns.mincost_circulation() == 0) {
-        cout << "Malformed graph -- Input error / Critical bug\n";
+        cout << "Ill-formed graph -- Input error / Critical bug\n";
 
         return 0;
     }
 
     // cout << "Circulation cost = " << ns.get_circulation_cost() << '\n';
-    map<int,int> solution;
+    map<int, int> solution;
     for (int e = 0; e < origE; e++) {
         if(ns.get_flow(e)){
             assert(solution.count(Edges[e].first) == 0);
             solution[Edges[e].first] = Edges[e].second;
             assert(SpecimenByIndex[Edges[e].first].size() > 0);
-        }
-    }
-
-    for (int e = origE; e < E; e++) {
-        if(ns.get_flow(e)){
-            if(SpecimenByIndex[Edges[e].first][0] != '%'){
-                // Non traded game --- SpecimenByIndex[Edges[e].first]
-            }
         }
     }
 
@@ -517,6 +519,7 @@ int main() {
 
     map<int,int> clean;
     for(auto [key, val] : solution){
+        assert(SpecimenByIndex.count(key) > 0);
         if(not SpecimenList[SpecimenByIndex[key]].dummy){ // Actual item to be sent
             int trueVal = val;
 
@@ -565,8 +568,10 @@ int main() {
             const Specimen& _left = SpecimenList[SpecimenByIndex[g[i]]];
             const Specimen& _right = SpecimenList[SpecimenByIndex[g[(i+1)%g.size()]]];
 
-            cout << "(" << _left.username << ") " << _left.tag << "\t ==> " ;
-            cout << "(" << _right.username << ") " << _right.tag << '\n';
+            if(REQUIRE_USERNAMES) cout << "(" << _left.username << ") ";
+            cout << _left.tag << "\t ==> " ;
+            if(REQUIRE_USERNAMES) cout << "(" << _right.username << ") ";
+            cout << _right.tag << '\n';
         }
         cout << '\n';
     }

@@ -9,7 +9,7 @@
 #define REQUIRE_COLON true
 #define REQUIRE_OFFICIAL_NAMES false
 #define REQUIRE_USERNAMES true
-#define ITERATIONS 1
+#define ITERATIONS 100
 #define SHOW_TRADES false
 #define SEED CLOCK_RNG
 
@@ -110,10 +110,130 @@ void sccShrinkOptimization(){
     Tags = newTags;
 }
 
+int solve(){
+    network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
+
+    // Simplex supply / demand
+    for (int v = 0; v < Items.size(); v++){
+        ns.add_supply(v, 1);
+        ns.add_supply(v + Items.size(), -1);
+    } 
+
+    vector<pair<int,int>> Edges;
+
+    // Patch to quickly shuffle results
+    vector<string> randTag;
+    for(const auto& [key, val] : Items) randTag.push_back(key);
+    shuffle(randTag.begin(), randTag.end(), rng);
+
+    for(const auto& tag : randTag){ // Build edges from wishlists
+        Specimen specimen = Items[tag];
+        shuffle(specimen.wishlist.begin(), specimen.wishlist.end(), rng);
+
+        for(const auto& wishIndex : specimen.wishlist){
+            assert(specimen.index != wishIndex);
+            Edges.push_back({specimen.index, wishIndex + Items.size()});
+
+            /* Cost could possibly be changed to 0 and INF to 1 */
+            ll cost = 1;
+
+            if(specimen.dummy) cost = INF;
+            ns.add(specimen.index, wishIndex + Items.size(), 0, 1, cost); 
+        }
+    }
+
+    for (int v = 0; v < Items.size(); v++){ // Matching loop idea hack
+        Edges.push_back({v, v + Items.size()});
+        ns.add(v, v + Items.size(), 0, 1, INF);
+    }
+
+    if (ns.mincost_circulation() == 0) { // Run simplex
+        cout << "Ill-formed graph -- Input error / Critical bug\n";
+        return -1;
+    }
+
+    map<int, int> solution;
+    for (int e = 0; e < Edges.size(); e++) {
+        if(ns.get_flow(e)){
+            assert(solution.count(Edges[e].first) == 0);
+            solution[Edges[e].first] = Edges[e].second;
+            if(not Tags[Edges[e].first].size() > 0){
+                cout << "WHOOPSIE -> " << Edges[e].first << endl;
+            }
+            assert(Tags[Edges[e].first].size() > 0);
+        }
+    }
+
+    // cout << "Solution count with dummy trades: " << solution.size() << endl;
+    // cout << "Item count with dummies = " << Items.size() << endl;
+
+    map<int,int> clean;
+    for(auto [key, val] : solution){
+        assert(Tags.count(key) > 0);
+        if(not Items[Tags[key]].dummy){ // Actual item to be sent
+            int trueVal = val;
+
+            while(Items[Tags[trueVal - Items.size()]].dummy){
+                trueVal = solution[trueVal - Items.size()];
+            }
+
+            assert(clean.count(key) == 0);
+            if(key != trueVal - Items.size()){ // Self loop implies a non traded item
+                clean[key] = trueVal - Items.size();
+            }
+        }
+    }
+
+    vector<vector<int>> groups;
+    map<int,bool> visit;
+    for(auto [key, val] : clean){
+        if(not visit[key]){
+            visit[key] = true;
+            groups.push_back({key});
+            int u = clean[key];
+            while(u != key){
+                visit[u] = true;
+                groups.back().push_back(u);
+                u = clean[u];
+            }
+        }
+    }
+    // sort(groups.begin(), groups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
+
+
+    // cout << "Clean up solution count: " << clean.size() << '\n';
+    /* // Watch out of concurrency
+    cout << "Total trades = " << clean.size() << '\n';
+    cout << "" << groups.size() << "): "; for(auto& g : groups) cout << g.size() << ' '; cout << '\n';
+    */
+
+    if(SHOW_TRADES) cout << "Trades: " << endl;
+
+    set<string> TradingUsers;
+    for(auto &g : groups){
+        for(int i = 0; i < g.size(); i++){
+            const Specimen& _left = Items[Tags[g[i]]];
+            const Specimen& _right = Items[Tags[g[(i+1)%g.size()]]];
+
+            if(SHOW_TRADES){
+                if(REQUIRE_USERNAMES) cout << "(" << _left.username << ") ";
+                cout << Tags[g[i]] << "\t ==> " ;
+                if(REQUIRE_USERNAMES) cout << "(" << _right.username << ") ";
+                cout << Tags[g[(i+1)%g.size()]] << '\n';
+            }
+
+            TradingUsers.insert(_left.username);
+            TradingUsers.insert(_right.username);
+        }
+        if(SHOW_TRADES) cout << '\n';
+    }
+    return TradingUsers.size();
+}
+
 int main() {
     timer T;
 
-    cin.tie(NULL)->sync_with_stdio(false);
+    // cin.tie(NULL)->sync_with_stdio(false);
     freopen("input.txt", "r", stdin);
     freopen("output.txt", "w", stdout);
 
@@ -197,125 +317,28 @@ int main() {
 
 
     int maxUsers = 0;
-    for(int _i = 0; _i < ITERATIONS; _i++){
-        network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
-
-        // Simplex supply / demand
-        for (int v = 0; v < Items.size(); v++){
-            ns.add_supply(v, 1);
-            ns.add_supply(v + Items.size(), -1);
-        } 
-
-        vector<pair<int,int>> Edges;
-
-        // Patch to quickly shuffle results
-        vector<string> randTag;
-        for(const auto& [key, val] : Items) randTag.push_back(key);
-        shuffle(randTag.begin(), randTag.end(), rng);
-
-        for(const auto& tag : randTag){ // Build edges from wishlists
-            Specimen specimen = Items[tag];
-            shuffle(specimen.wishlist.begin(), specimen.wishlist.end(), rng);
-
-            for(const auto& wishIndex : specimen.wishlist){
-                assert(specimen.index != wishIndex);
-                Edges.push_back({specimen.index, wishIndex + Items.size()});
-
-                /* Cost could possibly be changed to 0 and INF to 1 */
-                ll cost = 1;
-
-                if(specimen.dummy) cost = INF;
-                ns.add(specimen.index, wishIndex + Items.size(), 0, 1, cost); 
-            }
-        }
-
-        for (int v = 0; v < Items.size(); v++){ // Matching loop idea hack
-            Edges.push_back({v, v + Items.size()});
-            ns.add(v, v + Items.size(), 0, 1, INF);
-        }
-
-        if (ns.mincost_circulation() == 0) { // Run simplex
-            cout << "Ill-formed graph -- Input error / Critical bug\n";
-
-            return 0;
-        }
-
-        map<int, int> solution;
-        for (int e = 0; e < Edges.size(); e++) {
-            if(ns.get_flow(e)){
-                assert(solution.count(Edges[e].first) == 0);
-                solution[Edges[e].first] = Edges[e].second;
-                if(not Tags[Edges[e].first].size() > 0){
-                    cout << "WHOOPSIE -> " << Edges[e].first << endl;
-                }
-                assert(Tags[Edges[e].first].size() > 0);
-            }
-        }
-
-        // cout << "Solution count with dummy trades: " << solution.size() << endl;
-        // cout << "Item count with dummies = " << Items.size() << endl;
-
-        map<int,int> clean;
-        for(auto [key, val] : solution){
-            assert(Tags.count(key) > 0);
-            if(not Items[Tags[key]].dummy){ // Actual item to be sent
-                int trueVal = val;
-
-                while(Items[Tags[trueVal - Items.size()]].dummy){
-                    trueVal = solution[trueVal - Items.size()];
-                }
-
-                assert(clean.count(key) == 0);
-                if(key != trueVal - Items.size()){ // Self loop implies a non traded item
-                    clean[key] = trueVal - Items.size();
-                }
-            }
-        }
-
-        vector<vector<int>> groups;
-        map<int,bool> visit;
-        for(auto [key, val] : clean){
-            if(not visit[key]){
-                visit[key] = true;
-                groups.push_back({key});
-                int u = clean[key];
-                while(u != key){
-                    visit[u] = true;
-                    groups.back().push_back(u);
-                    u = clean[u];
-                }
-            }
-        }
-        // sort(groups.begin(), groups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
-
-
-        // cout << "Clean up solution count: " << clean.size() << '\n';
-        cout << "Total trades = " << clean.size() << '\n';
-        cout << "Groups (" << groups.size() << "): "; for(auto& g : groups) cout << g.size() << ' '; cout << '\n';
-
-        if(SHOW_TRADES) cout << "Trades: " << endl;
-
-        set<string> TradingUsers;
-        for(auto &g : groups){
-            for(int i = 0; i < g.size(); i++){
-                const Specimen& _left = Items[Tags[g[i]]];
-                const Specimen& _right = Items[Tags[g[(i+1)%g.size()]]];
-    
-                if(SHOW_TRADES){
-                    if(REQUIRE_USERNAMES) cout << "(" << _left.username << ") ";
-                    cout << Tags[g[i]] << "\t ==> " ;
-                    if(REQUIRE_USERNAMES) cout << "(" << _right.username << ") ";
-                    cout << Tags[g[(i+1)%g.size()]] << '\n';
-                }
-
-                TradingUsers.insert(_left.username);
-                TradingUsers.insert(_right.username);
-            }
-            if(SHOW_TRADES) cout << '\n';
-        }
-        maxUsers = max(maxUsers, (int) TradingUsers.size());
-        cout << "Trading with " << TradingUsers.size() << " users (max found = " << maxUsers << ")" << '\n';
+    vector<future<int>> Run(ITERATIONS);
+    for(int i = 0; i < ITERATIONS; i++) Run[i] = async(&solve);
+    for(int i = 0; i < ITERATIONS; i++) {
+        int result = Run[i].get();
+        assert(result != -1);
+        maxUsers = max(result, maxUsers);
+        cout << "Trading with " << result << " users (max found = " << maxUsers << ")" << '\n';
     }
+
+    /*
+    for(int _i = 0; _i < ITERATIONS; _i++){
+        vector<thread> T(4);
+        for(int t = 0; t < T.size(); t++) T[t] = thread(run);
+        for(int t = 0; t < T.size(); t++) T[t].join();
+
+        
+        int result = run();
+        assert(result != -1);
+        maxUsers = max(result, maxUsers);
+        cout << "Trading with " << result << " users (max found = " << maxUsers << ")" << '\n';
+    }
+    */
     cout << "Elapsed time: " << T.elapsed_time() << "ms" << '\n';
 
     return 0;

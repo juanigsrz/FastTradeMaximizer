@@ -58,6 +58,9 @@ struct network_simplex {
     explicit network_simplex(int V) : V(V), node(V + 1) {}
 
     void add(int u, int v, Flow lower, Flow upper, Cost cost) {
+        if(not (0 <= u && u < V && 0 <= v && v < V)){
+            cout << u << " " << v << " " << V << endl;
+        }
         assert(0 <= u && u < V && 0 <= v && v < V);
         edge.push_back({{u, v}, lower, upper, cost}), E++;
     }

@@ -135,13 +135,13 @@ int solve(){
 
     vector<pair<int,int>> Edges;
 
-    // Patch to quickly shuffle results
+    // Randomly shuffle input
     vector<string> randTag;
     for(const auto& [key, val] : Items) randTag.push_back(key);
     shuffle(randTag.begin(), randTag.end(), rng);
 
     for(const auto& tag : randTag){ // Build edges from wishlists
-        Specimen specimen = Items[tag];
+        Specimen specimen = Items[tag]; // Write over copies, not concurrent data 
         shuffle(specimen.wishlist.begin(), specimen.wishlist.end(), rng);
 
         for(const auto& wishIndex : specimen.wishlist){
@@ -173,9 +173,6 @@ int solve(){
             assert(Tags[Edges[e].first].size() > 0);
         }
     }
-
-    // cout << "Solution count with dummy trades: " << solution.size() << endl;
-    // cout << "Item count with dummies = " << Items.size() << endl;
 
     map<int,int> clean; // Cleaned up solution with indices back to [0,N)
     for(auto [key, val] : solution){
@@ -210,17 +207,10 @@ int solve(){
     }
     // sort(groups.begin(), groups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
 
-
-    // cout << "Clean up solution count: " << clean.size() << '\n';
-    /* // Watch out of concurrency
-    cout << "Total trades = " << clean.size() << '\n';
-    cout << "" << groups.size() << "): "; for(auto& g : groups) cout << g.size() << ' '; cout << '\n';
-    */
-
     if(Settings.SHOW_TRADES) cout << "Trades: " << endl;
 
     set<string> TradingUsers;
-    for(auto &g : groups){
+    for(const auto &g : groups){
         for(int i = 0; i < g.size(); i++){
             const Specimen& _left = Items[Tags[g[i]]];
             const Specimen& _right = Items[Tags[g[(i+1)%g.size()]]];
@@ -366,7 +356,7 @@ int main() {
         }
     }
 
-    cout << "Processed input after " << T.elapsed_time() << "ms" << endl;
+    if(Settings.SHOW_ELAPSED_TIME) cout << "Processed input after " << T.elapsed_time() << "ms" << endl;
 
     rng = mt19937_64(Settings.SEED);
 
@@ -384,20 +374,7 @@ int main() {
         cout << "Trading with " << result << " users (max found = " << maxUsers << ")" << '\n';
     }
 
-    /*
-    for(int _i = 0; _i < _ITERATIONS; _i++){
-        vector<thread> T(4);
-        for(int t = 0; t < T.size(); t++) T[t] = thread(run);
-        for(int t = 0; t < T.size(); t++) T[t].join();
-
-        
-        int result = run();
-        assert(result != -1);
-        maxUsers = max(result, maxUsers);
-        cout << "Trading with " << result << " users (max found = " << maxUsers << ")" << '\n';
-    }
-    */
-    cout << "Elapsed time: " << T.elapsed_time() << "ms" << '\n';
+    if(Settings.SHOW_ELAPSED_TIME) cout << "Total elapsed time: " << T.elapsed_time() << "ms" << '\n';
 
     return 0;
 }

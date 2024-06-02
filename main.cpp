@@ -4,8 +4,7 @@
 
 #include <bits/stdc++.h>
 #include "network_simplex.hpp"
-#include "chrono.hpp"
-#include "utils.cpp"
+#include "utils.hpp"
 
 using namespace std;
 using ll = long long;
@@ -17,6 +16,7 @@ public:
     size_t formattingWidth = 0;
     vector<string> options;
 
+    utils::timer Timer;
     const string version = "0.1";
 } Metadata;
 
@@ -245,13 +245,45 @@ void solve(int iteration){
     return;
 }
 
+void formatOutput(ostream& out){
+    vector<string> itemSummary;
+    out << "FastTradeMaximizer Version " << Metadata.version << '\n';
+    out << "Options: "; for(const auto &o : Metadata.options) out << o << ' '; out << "\n\n";
+    out << "TRADE LOOPS (" << Metadata.tradedItems << " total trades):\n\n";
+    for(const auto &g : bestGroups){
+        for(int i = 0; i < g.size(); i++){
+            // Generate trade loops
+            const Specimen& current     = Items[Tags[g[i]]];
+            const Specimen& sendTo      = Items[Tags[g[(i+1)%g.size()]]];
+            const Specimen& receiveFrom = Items[Tags[g[(i-1+g.size())%g.size()]]];
+
+            out << std::left << setfill(' ') << setw(Metadata.formattingWidth) << sendTo.show() << " receives " << current.show() << '\n';
+
+            // Prepare item summaries
+            stringstream buffer;
+            buffer  << std::left << setfill(' ') << setw(Metadata.formattingWidth) << current.show() << " receives "
+                    << std::left << setfill(' ') << setw(Metadata.formattingWidth) << receiveFrom.show() << "and sends to "
+                    << sendTo.show();
+            itemSummary.push_back(buffer.str());
+        }
+        out << '\n';
+    }
+
+    out << "ITEM SUMMARY (" << Metadata.tradedItems << " total trades):\n\n";
+    sort(itemSummary.begin(), itemSummary.end());
+    for(const auto &s : itemSummary) out << s << '\n';
+
+    out << '\n';
+    out << "Num trades   = " << Metadata.tradedItems << " of " << Metadata.totalRealItems << " items (" << Metadata.tradedItems * 100.0 / Metadata.totalRealItems * 1.0 << "%)\n";
+    out << "Best metric  = " << Metadata.trackedMetric << '\n';
+    out << "Total cost   = " << Metadata.tradedItems << " (avg 1.00)\n"; // There is no priority implemented
+    out << "Num groups   = " << bestGroups.size() << '\n';
+    out << "Group sizes  = "; for(const auto& g : bestGroups) out << g.size() << ' '; out << '\n';
+    out << "Sum squares  = " << Metadata.sumSquares << '\n';
+    if(Settings.SHOW_ELAPSED_TIME) out << "Elapsed time = " << Metadata.Timer.elapsed_time() << "ms" << '\n';
+}
+
 int main() {
-    timer T;
-
-    // cin.tie(NULL)->sync_with_stdio(false);
-    freopen("input.txt", "r", stdin);
-    freopen("output.txt", "w", stdout);
-
     string line;
 
     while (getline(cin, line)) {
@@ -378,8 +410,6 @@ int main() {
     for(int i = 0; i < Settings.ITERATIONS; i++) Run[i] = async(&solve, i);
     for(int i = 0; i < Settings.ITERATIONS; i++) Run[i].get();
 
-
-
     // Prepare metadata
     sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
     for(const auto &v : bestGroups){
@@ -392,41 +422,7 @@ int main() {
     }
     
     // Format output
-    vector<string> itemSummary;
-    cout << "FastTradeMaximizer Version " << Metadata.version << '\n';
-    cout << "Options: "; for(const auto &o : Metadata.options) cout << o << ' '; cout << "\n\n";
-    cout << "TRADE LOOPS (" << Metadata.tradedItems << " total trades):\n\n";
-    for(const auto &g : bestGroups){
-        for(int i = 0; i < g.size(); i++){
-            // Generate trade loops
-            const Specimen& current     = Items[Tags[g[i]]];
-            const Specimen& sendTo      = Items[Tags[g[(i+1)%g.size()]]];
-            const Specimen& receiveFrom = Items[Tags[g[(i-1+g.size())%g.size()]]];
-
-            cout << std::left << setfill(' ') << setw(Metadata.formattingWidth) << sendTo.show() << " receives " << current.show() << '\n';
-
-            // Prepare item summaries
-            stringstream buffer;
-            buffer  << std::left << setfill(' ') << setw(Metadata.formattingWidth) << current.show() << " receives "
-                    << std::left << setfill(' ') << setw(Metadata.formattingWidth) << receiveFrom.show() << "and sends to "
-                    << sendTo.show();
-            itemSummary.push_back(buffer.str());
-        }
-        cout << '\n';
-    }
-
-    cout << "\nITEM SUMMARY (" << Metadata.tradedItems << " total trades):\n\n";
-    sort(itemSummary.begin(), itemSummary.end());
-    for(const auto &s : itemSummary) cout << s << '\n';
-
-    cout << '\n';
-    cout << "Num trades   = " << Metadata.tradedItems << " of " << Metadata.totalRealItems << " items (" << Metadata.tradedItems * 100.0 / Metadata.totalRealItems * 1.0 << "%)\n";
-    cout << "Best metric  = " << Metadata.trackedMetric << '\n';
-    cout << "Total cost   = " << Metadata.tradedItems << " (avg 1.00)\n"; // There is no priority implemented
-    cout << "Num groups   = " << bestGroups.size() << '\n';
-    cout << "Group sizes  = "; for(const auto& g : bestGroups) cout << g.size() << ' '; cout << '\n';
-    cout << "Sum squares  = " << Metadata.sumSquares << '\n';
-    if(Settings.SHOW_ELAPSED_TIME) cout << "Elapsed time = " << T.elapsed_time() << "ms" << '\n';
+    formatOutput(cout);
 
     return 0;
 }

@@ -1,9 +1,10 @@
-using namespace std;
-using ll = long long;
+#include <vector>
+#include <algorithm>
+#include <cassert>
 
 struct linked_lists {
     int L, N;
-    vector<int> next, prev;
+    std::vector<int> next, prev;
 
     // L: lists are [0...L), N: integers are [0...N)
     explicit linked_lists(int L = 0, int N = 0) { assign(L, N); }
@@ -34,8 +35,8 @@ struct linked_lists {
     }
 
     void clear() {
-        iota(begin(next) + N, end(next), N);
-        iota(begin(prev) + N, end(prev), N);
+        std::iota(begin(next) + N, end(next), N);
+        std::iota(begin(prev) + N, end(prev), N);
     }
     void assign(int L, int N) {
         this->L = L, this->N = N;
@@ -53,14 +54,11 @@ struct linked_lists {
 #define FOR_EACH_IN_LINKED_LIST_REVERSE(i, l, lists) \
     for (int z##i = l, i = lists.tail(z##i); i != lists.rep(z##i); i = lists.prev[i])
 
-template <typename Flow = ll, typename Cost = ll, typename CostSum = Cost>
+template <typename Flow = long long, typename Cost = long long, typename CostSum = Cost>
 struct network_simplex {
     explicit network_simplex(int V) : V(V), node(V + 1) {}
 
     void add(int u, int v, Flow lower, Flow upper, Cost cost) {
-        if(not (0 <= u && u < V && 0 <= v && v < V)){
-            cout << u << " " << v << " " << V << endl;
-        }
         assert(0 <= u && u < V && 0 <= v && v < V);
         edge.push_back({{u, v}, lower, upper, cost}), E++;
     }
@@ -136,10 +134,10 @@ struct network_simplex {
         ArcState state = STATE_LOWER;
     };
     int V, E = 0, next_arc = 0, block_size = 0;
-    vector<Node> node;
-    vector<Edge> edge;
+    std::vector<Node> node;
+    std::vector<Edge> edge;
     linked_lists children;
-    vector<int> bfs; // scratchpad for pi bfs and upwards walk
+    std::vector<int> bfs; // scratchpad for pi bfs and upwards walk
 
     auto reduced_cost(int e) const {
         auto [u, v] = edge[e].node;
@@ -180,7 +178,7 @@ struct network_simplex {
             }
         }
 
-        block_size = max(int(ceil(sqrt(V + 1))), min(10, V + 1));
+        block_size = std::max(int(std::ceil(std::sqrt(V + 1))), std::min(10, V + 1));
     }
 
     int select_pivot_edge() { // lemon-like block search
@@ -300,27 +298,3 @@ struct network_simplex {
         }
     }
 };
-
-namespace std {
-string to_string(__int128_t x) {
-    if (x == 0)
-        return "0";
-    __uint128_t k = x;
-    if (k == (((__uint128_t)1) << 127))
-        return "-170141183460469231731687303715884105728";
-    string result;
-    if (x < 0) {
-        result += "-";
-        x *= -1;
-    }
-    string t;
-    while (x) {
-        t.push_back('0' + x % 10);
-        x /= 10;
-    }
-    reverse(t.begin(), t.end());
-    return result + t;
-}
-
-ostream& operator<<(ostream& o, __int128_t x) { return o << to_string(x); }
-} // namespace std

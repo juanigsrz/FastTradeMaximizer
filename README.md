@@ -44,9 +44,9 @@ I used the following command lines to run both programs:
 
 # Additional comments
 
-- Item nodes have a $\texttt{supply}\in\mathbb{N}$ of flow, and edges have a $\texttt{lower\char`_bound}$ and an $\texttt{upper\char`_bound}$ flow requirements. By default, senders have $\texttt{supply = 1}$, receivers $\texttt{supply = -1}$, and edges $\texttt{lower\char`_bound = 0}, \texttt{upper-bound = 1}$. This may let you think of a new feature, for example $\texttt{lower\char`_bound = upper\char`_bound = 1}$ **forces** an edge to be selected. You could also set $\texttt{supply = 0}$ to represent a "passing by" optional node, or $\texttt{supply = 2}$ to let a node get matched to up to 2 edges.
+- Item nodes have a $\texttt{supply}\in\mathbb{N}$ of flow, and edges have $\texttt{lower}$ and $\texttt{upper}$ bound flow requirements. By default, senders have $\texttt{supply=1}$, receivers $\texttt{supply=-1}$, and edges $\texttt{lower=0}, \texttt{upper=1}$. This may let you think of a new feature, for example $\texttt{lower=upper=1}$ **forces** an edge to be selected. You could also set $\texttt{supply=0}$ to represent a "passing by" optional node, or $\texttt{supply=2}$ to let a node get matched to up to 2 edges.
 
-- Edges also have a $\texttt{cost}$ per unit of flow associated ($\texttt{1}$ by default and $\texttt{INF}$ for edges we don't want to use, like self loops). Conventional flow algorithms will forbid negative values or may require some sort of special initialization. A linear solver doesn't care.
+- Edges also have a $\texttt{cost}\in\mathbb{N}$ per unit of flow associated ($\texttt{cost=1}$ by default and $\texttt{cost=INF}$ for edges we don't want to use, like self loops). Conventional flow algorithms will forbid negative values or may require some sort of special initialization, a linear solver doesn't care.
 
 - Priorities seem a bit useless so they were not implemented, they can be included by tweaking edges' $\texttt{cost}$. Just remember that increasing an edge's cost makes it less prioritary than **all** other edges, not just yours.
 

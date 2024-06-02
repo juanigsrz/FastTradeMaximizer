@@ -1,20 +1,30 @@
 #pragma GCC optimize("O3")
 #pragma GCC optimize("unroll-loops")
-// #pragma GCC target("avx,avx2,sse,sse2,sse3,sse4,popcnt") /* might go faster at the expense of breaking Windows builds */
+// #pragma GCC target("sse,sse2,sse3,ssse3,sse4,sse4.1,sse4.2,popcnt,lzcnt,abm,bmi,bmi2,avx,avx2,tune=native") /* might go faster at the expense of breaking Windows builds, to be tested */
 
 #include <bits/stdc++.h>
 #include "network_simplex.hpp"
 #include "chrono.hpp"
+#include "utils.cpp"
 
 using namespace std;
 using ll = long long;
 
+static class Stats {
+public:
+    int totalItems = 0, tradedItems = 0;
+    ll  sumSquares = 0, trackedMetric = 0;
+    size_t formattingWidth = 0;
+    vector<string> options;
+
+    const string version = "0.1";
+} Metadata;
 
 static class Config {
 public:
     enum METRIC_TYPE { USERS_TRADING = 0 } METRIC;
     bool ALLOW_DUMMIES , REQUIRE_COLONS, REQUIRE_USERNAMES, REQUIRE_OFFICIAL_NAMES,
-        SHOW_MISSING, SHOW_WANTS, SHOW_TRADES, SHOW_ELAPSED_TIME,
+        SHOW_MISSING, SHOW_WANTS, SHOW_ELAPSED_TIME,
         HIDE_LOOPS, HIDE_SUMMARY, HIDE_NONTRADES, HIDE_ERRORS, HIDE_REPEATS, HIDE_STATS,
         SORT_BY_ITEM, CASE_SENSITIVE, VERBOSE, SHRINK_VERBOSE;
 
@@ -30,6 +40,7 @@ struct Specimen {
     vector<int> wishlist;
     bool dummy;
 };
+
 
 mt19937_64 rng;
 unordered_map<string, Specimen> Items; // Maps tags to the corresponding item
@@ -124,7 +135,9 @@ void sccShrinkOptimization(){
 // solve() runs the whole sauce of solving the math trade.
 // It's been repurposed to be ran concurrently by many threads, though this function reads and doesn't write concurrent
 // data structures (i.e. Items, Tags), which is thread safe.
-int solve(){
+vector<vector<int>> bestGroups;
+mutex SolveMutex;
+void solve(){
     network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
 
     // Simplex supply / demand
@@ -162,7 +175,7 @@ int solve(){
 
     if (ns.mincost_circulation() == 0) { // Run simplex
         cout << "Ill-formed graph -- Input error / Critical bug\n";
-        return -1;
+        assert(false);
     }
 
     map<int, int> solution; // Solution in the abstracted space of Senders and Receivers
@@ -205,9 +218,6 @@ int solve(){
             }
         }
     }
-    // sort(groups.begin(), groups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
-
-    if(Settings.SHOW_TRADES) cout << "Trades: " << endl;
 
     set<string> TradingUsers;
     for(const auto &g : groups){
@@ -215,19 +225,22 @@ int solve(){
             const Specimen& _left = Items[Tags[g[i]]];
             const Specimen& _right = Items[Tags[g[(i+1)%g.size()]]];
 
-            if(Settings.SHOW_TRADES){
-                if(Settings.REQUIRE_USERNAMES) cout << "(" << _left.username << ") ";
-                cout << Tags[g[i]] << "\t ==> " ;
-                if(Settings.REQUIRE_USERNAMES) cout << "(" << _right.username << ") ";
-                cout << Tags[g[(i+1)%g.size()]] << '\n';
-            }
-
             TradingUsers.insert(_left.username);
             TradingUsers.insert(_right.username);
         }
-        if(Settings.SHOW_TRADES) cout << '\n';
     }
-    return TradingUsers.size();
+
+    SolveMutex.lock();
+    /* CRITICAL SECTION - Do any concurrent operations here */
+    if(Settings.METRIC == Config::USERS_TRADING){
+        if(Metadata.trackedMetric < TradingUsers.size()){
+            Metadata.trackedMetric = TradingUsers.size();
+            bestGroups = groups;
+        }
+    }
+    SolveMutex.unlock();
+
+    return;
 }
 
 int main() {
@@ -257,7 +270,6 @@ int main() {
                 else if(option == "REQUIRE-OFFICIAL-NAMES") Settings.REQUIRE_OFFICIAL_NAMES = true;
                 else if(option == "SHOW-MISSING")           Settings.SHOW_MISSING = true;
                 else if(option == "SHOW-WANTS")             Settings.SHOW_WANTS = true;
-                else if(option == "SHOW-TRADES")            Settings.SHOW_TRADES = true;
                 else if(option == "SHOW-ELAPSED-TIME")      Settings.SHOW_ELAPSED_TIME = true;
                 else if(option == "HIDE-LOOPS")             Settings.HIDE_LOOPS = true;
                 else if(option == "HIDE-SUMMARY")           Settings.HIDE_SUMMARY = true;
@@ -284,8 +296,11 @@ int main() {
                 } else validOption = false;
 
                 if(not validOption) {
-                    cout << "WARNING: Ignoring non-supported or wrongly typed option \"" << option << "\".\n";
+                    cout << "Unknown option \"" << option << "\".\n";
+                    assert(false);
                 }
+
+                Metadata.options.push_back(option);
             }
         }
         else if(line == "!BEGIN-OFFICIAL-NAMES"){
@@ -297,11 +312,9 @@ int main() {
                 assert(Items.count(tag) == 0); // Repeated tag in official names
 
                 int elems = Items.size();
-                Items[tag] = Specimen{
-                    .index = elems,
-                    .dummy = false
-                };
+                Items[tag] = Specimen{.index = elems, .dummy = false};
                 Tags[elems] = tag;
+                Metadata.totalItems++;
             }
         } else {
             // Wishlists
@@ -334,6 +347,7 @@ int main() {
                 Items[tag].index = elems;
                 Tags[elems] = tag;
                 Items[tag].dummy = tag[0] == '%';
+                Metadata.totalItems += tag[0] != '%';
             }
             
             if(Items[tag].username == ""){
@@ -349,6 +363,7 @@ int main() {
                     Items[temp].index = elems;
                     Tags[elems] = temp;
                     Items[temp].dummy = temp[0] == '%';
+                    Metadata.totalItems += tag[0] != '%';
                 }
 
                 Items[temp].wishlist.push_back(Items[tag].index);
@@ -356,25 +371,54 @@ int main() {
         }
     }
 
-    if(Settings.SHOW_ELAPSED_TIME) cout << "Processed input after " << T.elapsed_time() << "ms" << endl;
-
     rng = mt19937_64(Settings.SEED);
-
-    // SCC
     sccShrinkOptimization();
 
-
-    int maxUsers = 0;
-    vector<future<int>> Run(Settings.ITERATIONS);
+    // Multithreaded solve()
+    vector<future<void>> Run(Settings.ITERATIONS);
     for(int i = 0; i < Settings.ITERATIONS; i++) Run[i] = async(&solve);
-    for(int i = 0; i < Settings.ITERATIONS; i++) {
-        int result = Run[i].get();
-        assert(result != -1);
-        maxUsers = max(result, maxUsers);
-        cout << "Trading with " << result << " users (max found = " << maxUsers << ")" << '\n';
+    for(int i = 0; i < Settings.ITERATIONS; i++) Run[i].get();
+
+    // Prepare metadata
+    sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
+    for(const auto &v : bestGroups){
+        Metadata.tradedItems += v.size();
+        Metadata.sumSquares += v.size() * v.size();
+        for(const auto &e : v){
+            const string& tag = Tags[e];
+            Metadata.formattingWidth = max(Metadata.formattingWidth, utils::utf8_length(tag) + utils::utf8_length(Items[tag].username));
+        }
+    }
+    
+    // Format output
+    cout << "FastTradeMaximizer Version " << Metadata.version << '\n';
+    cout << "Options: "; for(const auto &o : Metadata.options) cout << o << ' '; cout << "\n\n";
+    cout << "TRADE LOOPS (" << Metadata.tradedItems << " total trades):\n\n";
+    for(auto &g : bestGroups){
+        for(int i = 0; i < g.size(); i++){
+            string senderTag = Tags[g[i]];
+            string receiverTag = Tags[g[(i+1)%g.size()]];
+
+            string leftText = Settings.SORT_BY_ITEM ?
+                                receiverTag + " " + "(" + Items[receiverTag].username + ")":
+                                "(" + Items[receiverTag].username + ")" + " " + receiverTag;
+            string rightText = Settings.SORT_BY_ITEM ?
+                                senderTag + " " + "(" + Items[senderTag].username + ")" :
+                                "(" + Items[senderTag].username + ")" + " " + senderTag;
+
+            cout << std::left << setfill(' ') << setw(Metadata.formattingWidth + 3) << leftText << " receives " << rightText << '\n';
+        }
+        cout << '\n';
     }
 
-    if(Settings.SHOW_ELAPSED_TIME) cout << "Total elapsed time: " << T.elapsed_time() << "ms" << '\n';
+
+    cout << '\n';
+    cout << "Num trades   = " << Metadata.tradedItems << " of " << Metadata.totalItems << " items (" << Metadata.tradedItems * 100.0 / Metadata.totalItems * 1.0 << "%)\n";
+    cout << "Total cost   = " << Metadata.tradedItems << " (avg 1.00)\n"; // There is no priority implemented
+    cout << "Num groups   = " << bestGroups.size() << '\n';
+    cout << "Group sizes  = "; for(const auto& g : bestGroups) cout << g.size() << ' '; cout << '\n';
+    cout << "Sum squares  = " << Metadata.sumSquares << '\n';
+    if(Settings.SHOW_ELAPSED_TIME) cout << "Elapsed time = " << T.elapsed_time() << "ms" << '\n';
 
     return 0;
 }

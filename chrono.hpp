@@ -1,7 +1,5 @@
 using namespace chrono;
 
-#define CLOCK_RNG steady_clock::now().time_since_epoch().count()
-
 class timer: high_resolution_clock {
     const time_point start_time;
 public:

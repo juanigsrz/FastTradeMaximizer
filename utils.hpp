@@ -22,6 +22,8 @@ public:
     rep elapsed_time() const { return std::chrono::duration_cast<std::chrono::milliseconds>(now()-start_time).count(); }
 };
 
+void up(std::string& str){ transform(str.begin(), str.end(), str.begin(), ::toupper); }
+
 } // namespace utils
 
 namespace std {

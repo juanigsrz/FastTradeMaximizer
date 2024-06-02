@@ -16,7 +16,7 @@ FastTradeMaximizer attempts to copy the original's behavior for as long as possi
 
 ## Compile
 
-    g++ main.cpp
+    g++ main.cpp -o ftm.exe
 
 <sup><sup>You need to compile C++17, if your compiler is not up to date ```-std=c++17``` might be helpful.<sup><sup>
 
@@ -24,14 +24,14 @@ FastTradeMaximizer attempts to copy the original's behavior for as long as possi
 
 ## Run
 
-    a.exe < wants.txt
+    ftm.exe < wants.txt
 
 # Benchmarks
 
 I used the following command lines to run both programs:
 
     java -jar tm-threaded.jar < input.txt > output.txt
-    a.exe < input.txt > output.txt
+    ftm.exe < input.txt > output.txt
 
 | Testcase   | Size       | Iterations | TradeMaximizer Version 1.5c multi-threaded | FastTradeMaximizer Version 0.1 |
 |------------|------------|------------|--------------------------------------------|--------------------------------|
@@ -44,12 +44,14 @@ I used the following command lines to run both programs:
 
 # Additional comments
 
-- Item nodes have a $supply\in\mathbb{N}$ of flow, and edges have a $lower\_bound$ and an $upper\_bound$ flow requirements. By default, senders have $supply=1$, receivers $supply=-1$, and edges $lower\_bound = 0, upper\_bound = 1  \text{ or } INF$. This may let you think of a new feature, for example $lower\_bound = upper\_bound = 1$ **forces** an edge to be selected. You could also set $supply=0$ to represent a "passing by" optional node, or $supply=2$ to let a node get matched to up to 2 edges.
+- Item nodes have a $\texttt{supply}\in\mathbb{N}$ of flow, and edges have a $\texttt{lower\_bound}$ and an $\texttt{upper\_bound}$ flow requirements. By default, senders have $\texttt{supply=1}$, receivers $\texttt{supply=-1}$, and edges $\texttt{lower\_bound=0}, \texttt{upper\_bound=1}$. This may let you think of a new feature, for example $\texttt{lower\_bound=upper\_bound=1}$ **forces** an edge to be selected. You could also set $\texttt{supply=0}$ to represent a "passing by" optional node, or $\texttt{supply=2}$ to let a node get matched to up to 2 edges.
 
-- Priorities seem a bit useless so they were not implemented, they can be easily included by tweaking edges' $\text{cost}$. Just remember that increasing an edge's cost makes it less prioritary than **all** other edges, not just yours.
+- Edges also have a $\texttt{cost}$ per unit of flow associated ($\texttt{1}$ by default and $\texttt{INF}$ for edges we don't want to use, like self loops). Conventional flow algorithms will forbid negative values or may require some sort of special initialization. A linear solver doesn't care.
 
-- Random generation and the program itself are completely different from the Java version, so it's impossible to reproduce the same outputs from previous Math Trades given the same $\text{SEED}$. However the number of maximum trades should be equal and the tracked metric should be the equal or better.
+- Priorities seem a bit useless so they were not implemented, they can be included by tweaking edges' $\texttt{cost}$. Just remember that increasing an edge's cost makes it less prioritary than **all** other edges, not just yours.
+
+- Random generation and the program itself are completely different from the Java version, so it's impossible to reproduce the same outputs from previous Math Trades given the same $\texttt{SEED}$. However the number of maximum trades should be equal and the tracked metric should be equal or better.
 
 - Simplex solves a superset of the problem, we don't have any generic graph, it's bipartite.
 
-- If you're on Linux and your processor supports it, you might want to experiment building with #pragma flags: ```#pragma GCC target("avx2,bmi,bmi2,popcnt,lzcnt")```
+- If you're on Linux and your CPU supports it, you might want to experiment building with #pragma flags: ```#pragma GCC target("avx2,bmi,bmi2,popcnt,lzcnt")```

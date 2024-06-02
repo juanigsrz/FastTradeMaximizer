@@ -323,7 +323,7 @@ int main() {
                     if(name == "SMALL-STEP")        Settings.SMALL_STEP = stoll(value);
                     else if(name == "BIG-STEP")     Settings.BIG_STEP = stoll(value);
                     else if(name == "ITERATIONS")   Settings.ITERATIONS = stoll(value);
-                    else if(name == "SEED")         Settings.SEED = stoll(value); // TODO : Figure out why not repeatable (guess is mt19937_64)
+                    else if(name == "SEED")         Settings.SEED = stoll(value);
                     else if(name == "SHRINK")       Settings.SHRINK = stoll(value);
                     else if(name == "METRIC")       Settings.METRIC = Config::USERS_TRADING; // There is no other METRIC
                     else validOption = false;
@@ -341,7 +341,7 @@ int main() {
             while (getline(cin, line) and line != "!END-OFFICIAL-NAMES") {
                 istringstream iss(line);
                 string tag;
-                iss >> tag;
+                iss >> tag; if(not Settings.CASE_SENSITIVE) utils::up(tag);
 
                 assert(Items.count(tag) == 0); // Repeated tag in official names
 
@@ -356,11 +356,9 @@ int main() {
             istringstream iss(line);
             string temp, username;
 
-            if(Settings.REQUIRE_USERNAMES){
-                getline(iss, temp, '(');
-                getline(iss, username, ')');
-                assert(temp.size() == 0 and username.size() > 0);
-            }
+            getline(iss, temp, '(');
+            getline(iss, username, ')');
+            assert(temp.size() == 0 and username.size() > 0);
             
             string tag;
             iss >> tag;
@@ -374,6 +372,7 @@ int main() {
                 }
             }
 
+            if(not Settings.CASE_SENSITIVE){ utils::up(tag); utils::up(username); }
             if(tag[0] == '%') tag += username;
             if(not Items.count(tag)){
                 if(Settings.REQUIRE_OFFICIAL_NAMES) assert(tag[0] == '%'); // Must be a dummy not seen before
@@ -389,6 +388,7 @@ int main() {
             else assert (Items[tag].username == username);
 
             while(iss >> temp){
+                if(not Settings.CASE_SENSITIVE) utils::up(temp);
                 if(temp[0] == '%') temp += username;
                 if(not Items.count(temp)){
                     if(Settings.REQUIRE_OFFICIAL_NAMES) assert(temp[0] == '%'); // Must be a dummy not seen before

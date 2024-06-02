@@ -47,7 +47,6 @@ struct Specimen {
 };
 
 
-mt19937_64 rng;
 unordered_map<string, Specimen> Items; // Maps tags to the corresponding item
 unordered_map<int, string> Tags; // Maps indices to tags, basically to represent a "bidirectional map"
 
@@ -142,7 +141,8 @@ void sccShrinkOptimization(){
 // data structures (i.e. Items, Tags), which is thread safe.
 vector<vector<int>> bestGroups;
 mutex SolveMutex;
-void solve(){
+void solve(int iteration){
+    mt19937_64 rng(Settings.SEED + iteration);
     network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
 
     // Simplex supply / demand
@@ -371,12 +371,11 @@ int main() {
         }
     }
 
-    rng = mt19937_64(Settings.SEED);
     sccShrinkOptimization();
 
     // Multithreaded solve()
     vector<future<void>> Run(Settings.ITERATIONS);
-    for(int i = 0; i < Settings.ITERATIONS; i++) Run[i] = async(&solve);
+    for(int i = 0; i < Settings.ITERATIONS; i++) Run[i] = async(&solve, i);
     for(int i = 0; i < Settings.ITERATIONS; i++) Run[i].get();
 
 

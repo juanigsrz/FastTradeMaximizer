@@ -12,7 +12,7 @@ using ll = long long;
 
 static class Stats {
 public:
-    int totalItems = 0, tradedItems = 0;
+    int totalRealItems = 0, tradedItems = 0;
     ll  sumSquares = 0, trackedMetric = 0;
     size_t formattingWidth = 0;
     vector<string> options;
@@ -36,9 +36,14 @@ public:
 // and index I + N represent the Ith item's "Receiver". So you can add or substract N to match some item index to its pair.
 struct Specimen {
     int index;
-    string username;
+    string tag, username;
     vector<int> wishlist;
     bool dummy;
+
+    string show() const {
+        if(Settings.SORT_BY_ITEM) return this->tag + " " + "(" + this->username + ")";
+        else                      return "(" + this->username + ")" + " " + this->tag;
+    }
 };
 
 
@@ -221,12 +226,9 @@ void solve(){
 
     set<string> TradingUsers;
     for(const auto &g : groups){
-        for(int i = 0; i < g.size(); i++){
-            const Specimen& _left = Items[Tags[g[i]]];
-            const Specimen& _right = Items[Tags[g[(i+1)%g.size()]]];
-
+        for(const auto &e : g){
+            const Specimen& _left = Items[Tags[e]];
             TradingUsers.insert(_left.username);
-            TradingUsers.insert(_right.username);
         }
     }
 
@@ -312,9 +314,9 @@ int main() {
                 assert(Items.count(tag) == 0); // Repeated tag in official names
 
                 int elems = Items.size();
-                Items[tag] = Specimen{.index = elems, .dummy = false};
+                Items[tag] = Specimen{.index = elems, .tag = tag, .dummy = false};
                 Tags[elems] = tag;
-                Metadata.totalItems++;
+                Metadata.totalRealItems++;
             }
         } else {
             // Wishlists
@@ -344,13 +346,12 @@ int main() {
             if(not Items.count(tag)){
                 if(Settings.REQUIRE_OFFICIAL_NAMES) assert(tag[0] == '%'); // Must be a dummy not seen before
                 int elems = Items.size();
-                Items[tag].index = elems;
+                Items[tag] = Specimen{.index = elems, .tag = tag, .username = username, .dummy = tag[0] == '%'};
                 Tags[elems] = tag;
-                Items[tag].dummy = tag[0] == '%';
-                Metadata.totalItems += tag[0] != '%';
+                Metadata.totalRealItems += tag[0] != '%';
             }
             
-            if(Items[tag].username == ""){
+            if(Items[tag].username.empty()){
                 Items[tag].username = username;
             }
             else assert (Items[tag].username == username);
@@ -360,10 +361,9 @@ int main() {
                 if(not Items.count(temp)){
                     if(Settings.REQUIRE_OFFICIAL_NAMES) assert(temp[0] == '%'); // Must be a dummy not seen before
                     int elems = Items.size();
-                    Items[temp].index = elems;
+                    Items[temp] = Specimen{.index = elems, .tag = temp, .dummy = temp[0] == '%'};
                     Tags[elems] = temp;
-                    Items[temp].dummy = temp[0] == '%';
-                    Metadata.totalItems += tag[0] != '%';
+                    Metadata.totalRealItems += temp[0] != '%';
                 }
 
                 Items[temp].wishlist.push_back(Items[tag].index);
@@ -379,6 +379,8 @@ int main() {
     for(int i = 0; i < Settings.ITERATIONS; i++) Run[i] = async(&solve);
     for(int i = 0; i < Settings.ITERATIONS; i++) Run[i].get();
 
+
+
     // Prepare metadata
     sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
     for(const auto &v : bestGroups){
@@ -386,34 +388,41 @@ int main() {
         Metadata.sumSquares += v.size() * v.size();
         for(const auto &e : v){
             const string& tag = Tags[e];
-            Metadata.formattingWidth = max(Metadata.formattingWidth, utils::utf8_length(tag) + utils::utf8_length(Items[tag].username));
+            Metadata.formattingWidth = max(Metadata.formattingWidth, utils::utf8_length(Items[tag].show()));
         }
     }
     
     // Format output
+    vector<string> itemSummary;
     cout << "FastTradeMaximizer Version " << Metadata.version << '\n';
     cout << "Options: "; for(const auto &o : Metadata.options) cout << o << ' '; cout << "\n\n";
     cout << "TRADE LOOPS (" << Metadata.tradedItems << " total trades):\n\n";
-    for(auto &g : bestGroups){
+    for(const auto &g : bestGroups){
         for(int i = 0; i < g.size(); i++){
-            string senderTag = Tags[g[i]];
-            string receiverTag = Tags[g[(i+1)%g.size()]];
+            // Generate trade loops
+            const Specimen& current     = Items[Tags[g[i]]];
+            const Specimen& sendTo      = Items[Tags[g[(i+1)%g.size()]]];
+            const Specimen& receiveFrom = Items[Tags[g[(i-1+g.size())%g.size()]]];
 
-            string leftText = Settings.SORT_BY_ITEM ?
-                                receiverTag + " " + "(" + Items[receiverTag].username + ")":
-                                "(" + Items[receiverTag].username + ")" + " " + receiverTag;
-            string rightText = Settings.SORT_BY_ITEM ?
-                                senderTag + " " + "(" + Items[senderTag].username + ")" :
-                                "(" + Items[senderTag].username + ")" + " " + senderTag;
+            cout << std::left << setfill(' ') << setw(Metadata.formattingWidth) << sendTo.show() << " receives " << current.show() << '\n';
 
-            cout << std::left << setfill(' ') << setw(Metadata.formattingWidth + 3) << leftText << " receives " << rightText << '\n';
+            // Prepare item summaries
+            stringstream buffer;
+            buffer  << std::left << setfill(' ') << setw(Metadata.formattingWidth) << current.show() << " receives "
+                    << std::left << setfill(' ') << setw(Metadata.formattingWidth) << receiveFrom.show() << "and sends to "
+                    << sendTo.show();
+            itemSummary.push_back(buffer.str());
         }
         cout << '\n';
     }
 
+    cout << "\nITEM SUMMARY (" << Metadata.tradedItems << " total trades):\n\n";
+    sort(itemSummary.begin(), itemSummary.end());
+    for(const auto &s : itemSummary) cout << s << '\n';
 
     cout << '\n';
-    cout << "Num trades   = " << Metadata.tradedItems << " of " << Metadata.totalItems << " items (" << Metadata.tradedItems * 100.0 / Metadata.totalItems * 1.0 << "%)\n";
+    cout << "Num trades   = " << Metadata.tradedItems << " of " << Metadata.totalRealItems << " items (" << Metadata.tradedItems * 100.0 / Metadata.totalRealItems * 1.0 << "%)\n";
+    cout << "Best metric  = " << Metadata.trackedMetric << '\n';
     cout << "Total cost   = " << Metadata.tradedItems << " (avg 1.00)\n"; // There is no priority implemented
     cout << "Num groups   = " << bestGroups.size() << '\n';
     cout << "Group sizes  = "; for(const auto& g : bestGroups) cout << g.size() << ' '; cout << '\n';

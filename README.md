@@ -28,7 +28,7 @@ FastTradeMaximizer attempts to copy the original's behavior for as long as possi
 
 # Benchmarks
 
-I used the following command lines to run both programs:
+All testcase files can be found in the ```/testcases``` directory. I used the following command lines to run both programs:
 
     java -jar tm-threaded.jar < input.txt > output.txt
     ftm.exe < input.txt > output.txt
@@ -36,11 +36,12 @@ I used the following command lines to run both programs:
 | Testcase   | Size       | Iterations | TradeMaximizer Version 1.5c multi-threaded | FastTradeMaximizer Version 0.1 |
 |------------|------------|------------|--------------------------------------------|--------------------------------|
 | ARG2024May | 6265 items | 1          | 259650ms (4min 19sec 650ms)                | 4116ms (4sec 116ms)            |
+| ARG2024May | 6265 items | 1000       | N/A                                        | 658010ms (10min 58sec 10ms)    |
 | US2024Jan  | 7808 items | 1          | 50971ms (50sec 971ms)                      | 1789ms (1sec 789ms)            |
 | US2024Jan  | 7808 items | 12         | 457804ms (7min 37sec 804ms)                | 2807ms (2sec 807ms)            |
-| BR2024May  | 958 items  | 96         | 1981ms (1sec 981ms)                        | 336ms                          |
-| US2024May  | 6291 items | 24         | 711742ms (11min 51sec 742ms)               | 5073ms (5sec 73ms)             |
 | US2024May  | 6291 items | 1          | 45440ms (45sec 440ms)                      | 1852ms (1sec 852ms)            |
+| US2024May  | 6291 items | 24         | 711742ms (11min 51sec 742ms)               | 5073ms (5sec 73ms)             |
+| BR2024May  | 958 items  | 96         | 1981ms (1sec 981ms)                        | 336ms                          |
 
 # Additional comments
 

@@ -422,7 +422,7 @@ int main() {
         Metadata.sumSquares += v.size() * v.size();
         for(const auto &e : v){
             const string& tag = Tags[e];
-            Metadata.formattingWidth = max(Metadata.formattingWidth, utils::utf8_length(Items[tag].show()));
+            Metadata.formattingWidth = max(Metadata.formattingWidth, utils::utf8_length(Items[tag].show()) + 1);
         }
     }
     

@@ -144,7 +144,7 @@ void sccShrinkOptimization(){
 vector<vector<int>> bestGroups;
 unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
 mutex SolveMutex;
-void solve(int iteration){
+bool solve(int iteration){
     network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
 
     // Simplex supply / demand
@@ -160,7 +160,9 @@ void solve(int iteration){
             assert(s.index != sendTo);
             Edges.push_back({s.index, sendTo + Items.size()});
 
-            ll cost = s.dummy ? Settings.NONTRADE_COST : 10000 - favoredCosts[s.index]; // TODO: Figure out a nicer way to stablish a cost
+            ll cost;
+            if(s.dummy) cost = Settings.NONTRADE_COST;
+            else cost = favoredCosts.count(s.index) ? 10000 - favoredCosts[s.index] : 10000; // TODO: Figure out a nicer way to stablish a cost
 
             ns.add(s.index, sendTo + Items.size(), 0, 1, cost); 
         }
@@ -217,7 +219,7 @@ void solve(int iteration){
         }
     }
 
-    set<string> TradingUsers;
+    unordered_set<string> TradingUsers;
     for(const auto &g : groups){
         for(const auto &e : g){
             const Specimen& _left = Items[Tags[e]];
@@ -226,6 +228,7 @@ void solve(int iteration){
     }
 
     SolveMutex.lock();
+    bool improvedSolution = false;
     /* CRITICAL SECTION - Do any concurrent operations here */
     if(Settings.METRIC == Config::USERS_TRADING){
         if(Settings.VERBOSE) cerr << "iteration #" << iteration << " found " << TradingUsers.size() << " users trading." << endl;
@@ -233,23 +236,16 @@ void solve(int iteration){
             Metadata.trackedMetric = TradingUsers.size();
             bestGroups = groups;
 
-            // Decrease cost to non-trading users
-            unordered_set<string> tradingUsers;
-            for(const auto &g : bestGroups) for(const auto &v : g) {
-                const Specimen& s = Items[Tags[v]];
-                tradingUsers.insert(s.username);
-            }
-
-            // favoredCosts.clear();
             for(const auto &[key, s] : Items) {
-                if(s.dummy or tradingUsers.count(s.username)) continue;
+                if(s.dummy or TradingUsers.count(s.username) or favoredCosts.count(s.index)) continue;
                 favoredCosts[s.index] = 1;
+                improvedSolution = true;
             }
         }
     }
     SolveMutex.unlock();
 
-    return;
+    return improvedSolution;
 }
 
 void formatOutput(ostream& out){
@@ -414,7 +410,7 @@ int main() {
 
     sccShrinkOptimization();
 
-    for(int i = 0; i < Settings.ITERATIONS; i++) solve(i);
+    for(int i = 0; solve(i); i++);
    
     // Prepare metadata
     for(const auto &v : bestGroups){

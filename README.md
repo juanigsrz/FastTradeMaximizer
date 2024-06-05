@@ -12,7 +12,7 @@ The code also comes with implementation details to make it go faster, besides th
 
 # Usage
 
-FastTradeMaximizer attempts to copy the original's behavior for as long as possible, mostly for testability reasons. So most of its functionality is the same.
+FastTradeMaximizer attempts to copy the original's behavior as much as possible, so most of its functionality is the same.
 
 ## Compile
 
@@ -20,7 +20,7 @@ FastTradeMaximizer attempts to copy the original's behavior for as long as possi
 
 <sup><sup>You need to compile C++17, if your compiler is not up to date ```-std=c++17``` might be helpful.<sup><sup>
 
-- For some strange reason installing an updated version of ```g++``` on Windows proved itself not to be as simple as doing one or two google searches. You can follow Microsoft's straightforward installation guide here: https://code.visualstudio.com/docs/cpp/config-mingw#_installing-the-mingww64-toolchain
+- For some reason installing an updated version of ```g++``` on Windows proved itself not to be as simple as doing one or two google searches. You can follow Microsoft's straightforward installation guide here: https://code.visualstudio.com/docs/cpp/config-mingw#_installing-the-mingww64-toolchain
 
 ## Run
 

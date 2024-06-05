@@ -1,4 +1,4 @@
-#pragma GCC optimize("O3")
+#pragma GCC optimize("O2")
 #pragma GCC optimize("unroll-loops")
 // #pragma GCC target("sse,sse2,sse3,ssse3,sse4,sse4.1,sse4.2,popcnt,lzcnt,abm,bmi,bmi2,avx,avx2,tune=native") /* might go faster at the expense of breaking Windows builds, to be tested */
 
@@ -17,7 +17,7 @@ public:
     vector<string> options;
 
     utils::timer Timer;
-    const string version = "0.1";
+    const string version = "0.2";
 } Metadata;
 
 static class Config {
@@ -28,7 +28,7 @@ public:
         HIDE_LOOPS, HIDE_SUMMARY, HIDE_NONTRADES, HIDE_ERRORS, HIDE_REPEATS, HIDE_STATS,
         SORT_BY_ITEM, CASE_SENSITIVE, VERBOSE, SHRINK_VERBOSE;
 
-    ll SMALL_STEP = 0, BIG_STEP = 0, ITERATIONS = 1, SEED, NONTRADE_COST = 1e9, SHRINK = 0;
+    ll SMALL_STEP = 0, BIG_STEP = 0, ITERATIONS = 1, SEED, NONTRADE_COST = 1e12, SHRINK = 0;
 } Settings;
 
 // Real items and dummies are uniquely mapped to an integer from 0 to N, being N the total number.
@@ -93,6 +93,7 @@ void sccShrinkOptimization(){
         }
         component.clear();
     }
+    if(Settings.SHRINK_VERBOSE) cerr << "Deleted " << optimizedEdges << " edges between different strongly conected components." << endl;
 
     set<int> deletedOrphans;
     for(auto it = Items.begin(); it != Items.end(); ){ // Delete oprhans (nodes left without outgoing edges)
@@ -102,6 +103,7 @@ void sccShrinkOptimization(){
         }
         else it++;
     }
+    if(Settings.SHRINK_VERBOSE) cerr << "Deleted " << deletedOrphans.size() << " orphan nodes." << endl;
 
     // Re-index nodes
     int total = 0;
@@ -140,9 +142,9 @@ void sccShrinkOptimization(){
 // It's been repurposed to be ran concurrently by many threads, though this function reads and doesn't write concurrent
 // data structures (i.e. Items, Tags), which is thread safe.
 vector<vector<int>> bestGroups;
+unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
 mutex SolveMutex;
 void solve(int iteration){
-    mt19937_64 rng(Settings.SEED + iteration);
     network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
 
     // Simplex supply / demand
@@ -153,23 +155,14 @@ void solve(int iteration){
 
     vector<pair<int,int>> Edges;
 
-    // Randomly shuffle input
-    vector<string> randTag;
-    for(const auto& [key, val] : Items) randTag.push_back(key);
-    shuffle(randTag.begin(), randTag.end(), rng);
+    for(const auto &[tag, s] : Items){ // Build edges from wishlists, write over copies, not concurrent data 
+        for(const auto &sendTo : s.wishlist){
+            assert(s.index != sendTo);
+            Edges.push_back({s.index, sendTo + Items.size()});
 
-    for(const auto& tag : randTag){ // Build edges from wishlists
-        Specimen specimen = Items[tag]; // Write over copies, not concurrent data 
-        shuffle(specimen.wishlist.begin(), specimen.wishlist.end(), rng);
+            ll cost = s.dummy ? Settings.NONTRADE_COST : 10000 - favoredCosts[s.index]; // TODO: Figure out a nicer way to stablish a cost
 
-        for(const auto& wishIndex : specimen.wishlist){
-            assert(specimen.index != wishIndex);
-            Edges.push_back({specimen.index, wishIndex + Items.size()});
-
-            ll cost = 1;
-
-            if(specimen.dummy) cost = Settings.NONTRADE_COST;
-            ns.add(specimen.index, wishIndex + Items.size(), 0, 1, cost); 
+            ns.add(s.index, sendTo + Items.size(), 0, 1, cost); 
         }
     }
 
@@ -235,9 +228,23 @@ void solve(int iteration){
     SolveMutex.lock();
     /* CRITICAL SECTION - Do any concurrent operations here */
     if(Settings.METRIC == Config::USERS_TRADING){
+        if(Settings.VERBOSE) cerr << "iteration #" << iteration << " found " << TradingUsers.size() << " users trading." << endl;
         if(Metadata.trackedMetric < TradingUsers.size()){
             Metadata.trackedMetric = TradingUsers.size();
             bestGroups = groups;
+
+            // Decrease cost to non-trading users
+            unordered_set<string> tradingUsers;
+            for(const auto &g : bestGroups) for(const auto &v : g) {
+                const Specimen& s = Items[Tags[v]];
+                tradingUsers.insert(s.username);
+            }
+
+            // favoredCosts.clear();
+            for(const auto &[key, s] : Items) {
+                if(s.dummy or tradingUsers.count(s.username)) continue;
+                favoredCosts[s.index] = 1;
+            }
         }
     }
     SolveMutex.unlock();
@@ -250,6 +257,8 @@ void formatOutput(ostream& out){
     out << "FastTradeMaximizer Version " << Metadata.version << '\n';
     out << "Options: "; for(const auto &o : Metadata.options) out << o << ' '; out << "\n\n";
     out << "TRADE LOOPS (" << Metadata.tradedItems << " total trades):\n\n";
+
+    sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
     for(const auto &g : bestGroups){
         for(int i = 0; i < g.size(); i++){
             // Generate trade loops
@@ -405,13 +414,9 @@ int main() {
 
     sccShrinkOptimization();
 
-    // Multithreaded solve()
-    vector<future<void>> Run(Settings.ITERATIONS);
-    for(int i = 0; i < Settings.ITERATIONS; i++) Run[i] = async(&solve, i);
-    for(int i = 0; i < Settings.ITERATIONS; i++) Run[i].get();
-
+    for(int i = 0; i < Settings.ITERATIONS; i++) solve(i);
+   
     // Prepare metadata
-    sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
     for(const auto &v : bestGroups){
         Metadata.tradedItems += v.size();
         Metadata.sumSquares += v.size() * v.size();
@@ -421,7 +426,7 @@ int main() {
         }
     }
     
-    // Format output
+    // Output result
     formatOutput(cout);
 
     return 0;

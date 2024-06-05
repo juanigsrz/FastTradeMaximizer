@@ -162,7 +162,7 @@ bool solve(int iteration){
 
             ll cost;
             if(s.dummy) cost = Settings.NONTRADE_COST;
-            else cost = favoredCosts.count(s.index) ? 10000 - favoredCosts[s.index] : 10000; // TODO: Figure out a nicer way to stablish a cost
+            else cost = favoredCosts.count(s.index) ? 1 - favoredCosts[s.index] : 1;
 
             ns.add(s.index, sendTo + Items.size(), 0, 1, cost); 
         }
@@ -227,8 +227,8 @@ bool solve(int iteration){
         }
     }
 
-    SolveMutex.lock();
     bool improvedSolution = false;
+    SolveMutex.lock();
     /* CRITICAL SECTION - Do any concurrent operations here */
     if(Settings.METRIC == Config::USERS_TRADING){
         if(Settings.VERBOSE) cerr << "iteration #" << iteration << " found " << TradingUsers.size() << " users trading." << endl;
@@ -237,8 +237,8 @@ bool solve(int iteration){
             bestGroups = groups;
 
             for(const auto &[key, s] : Items) {
-                if(s.dummy or TradingUsers.count(s.username) or favoredCosts.count(s.index)) continue;
-                favoredCosts[s.index] = 1;
+                if(s.dummy or TradingUsers.count(s.username)) continue;
+                favoredCosts[s.index] += 1;
                 improvedSolution = true;
             }
         }

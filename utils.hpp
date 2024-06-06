@@ -11,9 +11,8 @@ std::wstring toWide(std::string s){
     return wide;
 }
 
-size_t utf8_length(std::string s){
-    return toWide(s).length();
-}
+
+size_t utf8_length(std::string s){  return toWide(s).length(); }
 
 class timer : std::chrono::high_resolution_clock {
     const time_point start_time;

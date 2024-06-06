@@ -17,7 +17,7 @@ public:
     vector<string> options;
 
     utils::timer Timer;
-    const string version = "0.2";
+    const string version = "0.3";
 } Metadata;
 
 static class Config {
@@ -143,6 +143,8 @@ void sccShrinkOptimization(){
 // data structures (i.e. Items, Tags), which is thread safe.
 vector<vector<int>> bestGroups;
 unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
+unordered_map<string, int> nontradedUserCount;
+unordered_map<string, int> userItemCount;
 mutex SolveMutex;
 bool solve(int iteration){
     network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
@@ -228,6 +230,7 @@ bool solve(int iteration){
     }
 
     bool improvedSolution = false;
+    set<string> FavoringRound;
     SolveMutex.lock();
     /* CRITICAL SECTION - Do any concurrent operations here */
     if(Settings.METRIC == Config::USERS_TRADING){
@@ -235,13 +238,22 @@ bool solve(int iteration){
         if(Metadata.trackedMetric < TradingUsers.size()){
             Metadata.trackedMetric = TradingUsers.size();
             bestGroups = groups;
+        }
 
-            for(const auto &[key, s] : Items) {
-                if(s.dummy or TradingUsers.count(s.username)) continue;
-                favoredCosts[s.index] += 1;
-                improvedSolution = true;
+        for(const auto &[key, s] : Items) {
+            if(s.dummy) continue;
+            if(TradingUsers.count(s.username)) continue;
+            if(FavoringRound.count(s.username)) continue;
+            if(userItemCount[s.username] == nontradedUserCount[s.username]) continue;
+
+            improvedSolution = true;
+            if(not favoredCosts.count(s.index)){
+                FavoringRound.insert(s.username);
+                favoredCosts[s.index] = 1;
+                nontradedUserCount[s.username]++;
             }
         }
+        
     }
     SolveMutex.unlock();
 
@@ -409,6 +421,10 @@ int main() {
     }
 
     sccShrinkOptimization();
+
+    for(const auto &[key, s] : Items){
+        if(not s.dummy) userItemCount[s.username]++;
+    }
 
     for(int i = 0; solve(i); i++);
    

@@ -8,11 +8,11 @@ Chris' original version uses augmenting paths with a modified Dijkstra algorithm
 
 This version formulates the min-cost max-flow matching problem as a linear programming problem instead and uses a specialized Simplex algorithm to solve it.  This algorithm's theoretical worst case is exponential although in practice it converges to the solution **very** fast with an average complexity of $O(V * E)$ and a good constant.
 
-The code also comes with implementation details to make it go faster, besides the usage of modern C++ tools itself. For example, item nodes are mapped to $[0,totalItems)$ indices so we can use a Simplex implementation that uses contiguous vector memory spaces.
+The code also comes with implementation details to make it go faster, besides the usage of modern C++ tools itself. For example, item nodes are mapped to $[0,totalItems)$ indices so we can use a Simplex implementation that uses contiguous vector memory spaces. It also implements a better heuristic than "randomly try to find better solutions", which not only finds strictly better solutions, it also does so quite faster.
 
 # Usage
 
-FastTradeMaximizer attempts to copy the original's behavior as much as possible, so most of its functionality is the same.
+FastTradeMaximizer attempts to copy the original's behavior as much as possible, so most of its functionality is the same. That said, it uses a better way to maximize the number of trading users, so the concept of random iterations doesn't exist anymore: it iterates as long as it wants to improve the solution in each step and stops when it can no longer do anything to improve it.
 
 ## Compile
 
@@ -28,20 +28,18 @@ FastTradeMaximizer attempts to copy the original's behavior as much as possible,
 
 # Benchmarks
 
-All testcase files can be found in the ```/testcases``` directory. I used the following command lines to run both programs:
+All testcase files can be found in the ```/testcases``` directory. This is not an objective benchmark because I'm using some official results that were probably ran in a sligtly slower computer than mine, it's mostly a showcase of improved solutions + a lot faster. I used the following command lines to run both programs:
 
     java -jar tm-threaded.jar < input.txt > output.txt
     ftm.exe < input.txt > output.txt
 
-| Testcase   | Size       | Iterations | TradeMaximizer Version 1.5c multi-threaded | FastTradeMaximizer Version 0.1 |
-|------------|------------|------------|--------------------------------------------|--------------------------------|
-| ARG2024May | 6265 items | 1          | 259650ms (4min 19sec 650ms)                | 4116ms (4sec 116ms)            |
-| ARG2024May | 6265 items | 1000       | N/A                                        | 658010ms (10min 58sec 10ms)    |
-| US2024Jan  | 7808 items | 1          | 50971ms (50sec 971ms)                      | 1789ms (1sec 789ms)            |
-| US2024Jan  | 7808 items | 12         | 457804ms (7min 37sec 804ms)                | 2807ms (2sec 807ms)            |
-| US2024May  | 6291 items | 1          | 45440ms (45sec 440ms)                      | 1852ms (1sec 852ms)            |
-| US2024May  | 6291 items | 24         | 711742ms (11min 51sec 742ms)               | 5073ms (5sec 73ms)             |
-| BR2024May  | 958 items  | 96         | 1981ms (1sec 981ms)                        | 336ms                          |
+| Testcase    | TradeMaximizer Version 1.5c multi-threaded                               | FastTradeMaximizer Version 0.3                     |
+|-------------|--------------------------------------------------------------------------|----------------------------------------------------|
+| ARG2024May  | 421 users in 1 iteration after 259650ms (4min 19sec 650ms)               | 427 users after 51276ms (51sec 276ms)              |
+| US2024Jan   | 300 users in 72 iterations after 4341261ms (1hrs 12min 21sec 261ms)      | 313 users in 24187ms (24sec 187ms)                 |
+| US2024Feb   | 222 users in 72 iterations after 1211105ms (20min 11sec 105ms)           | 230 users in 22819ms (22sec 819ms)                 |
+| US2024Apr   | 241 users in 72 iterations after 2633036ms (43min 53sec 36ms)            | 249 users in 60644ms (1min 644ms)                  |
+| US2024May   | 251 users in 72 iterations after 3685621ms (1hrs 1min 25sec 621ms)       | 257 users in 49932ms (49sec 932ms)                 |
 
 # Additional comments
 

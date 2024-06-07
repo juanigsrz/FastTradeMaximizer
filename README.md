@@ -35,11 +35,11 @@ All testcase files can be found in the ```/testcases``` directory. This is not a
 
 | Testcase    | TradeMaximizer Version 1.5c multi-threaded                               | FastTradeMaximizer Version 0.3                     |
 |-------------|--------------------------------------------------------------------------|----------------------------------------------------|
-| ARG2024May  | 421 users in 1 iteration after 259650ms (4min 19sec 650ms)               | 427 users after 51276ms (51sec 276ms)              |
-| US2024Jan   | 300 users in 72 iterations after 4341261ms (1hrs 12min 21sec 261ms)      | 313 users in 24187ms (24sec 187ms)                 |
-| US2024Feb   | 222 users in 72 iterations after 1211105ms (20min 11sec 105ms)           | 230 users in 22819ms (22sec 819ms)                 |
-| US2024Apr   | 241 users in 72 iterations after 2633036ms (43min 53sec 36ms)            | 249 users in 60644ms (1min 644ms)                  |
-| US2024May   | 251 users in 72 iterations after 3685621ms (1hrs 1min 25sec 621ms)       | 257 users in 49932ms (49sec 932ms)                 |
+| ARG2024May  | 421 users in 1 iteration after 259650ms (4min 19sec 650ms)               | 427 users after 35941ms (35sec 941ms)              |
+| US2024Jan   | 300 users in 72 iterations after 4341261ms (1hrs 12min 21sec 261ms)      | 313 users in 16999ms (16sec 999ms)                 |
+| US2024Feb   | 222 users in 72 iterations after 1211105ms (20min 11sec 105ms)           | 230 users in 15609ms (15sec 609ms)                 |
+| US2024Apr   | 241 users in 72 iterations after 2633036ms (43min 53sec 36ms)            | 250 users in 42214ms (42sec 214ms)                  |
+| US2024May   | 251 users in 72 iterations after 3685621ms (1hrs 1min 25sec 621ms)       | 257 users in 33832ms (33sec 832ms)                 |
 
 # Additional comments
 

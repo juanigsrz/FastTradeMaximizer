@@ -1,4 +1,4 @@
-#pragma GCC optimize("O2")
+#pragma GCC optimize("O3")
 #pragma GCC optimize("unroll-loops")
 // #pragma GCC target("sse,sse2,sse3,ssse3,sse4,sse4.1,sse4.2,popcnt,lzcnt,abm,bmi,bmi2,avx,avx2,tune=native") /* might go faster at the expense of breaking Windows builds, to be tested */
 
@@ -147,7 +147,7 @@ unordered_map<string, int> nontradedUserCount;
 unordered_map<string, int> userItemCount;
 mutex SolveMutex;
 bool solve(int iteration){
-    network_simplex<ll, ll, __int128_t> ns(2 * Items.size());
+    network_simplex<ll, ll> ns(2 * Items.size());
 
     // Simplex supply / demand
     for (int v = 0; v < Items.size(); v++){

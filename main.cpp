@@ -1,8 +1,15 @@
-#pragma GCC optimize("O3")
-#pragma GCC optimize("unroll-loops")
+#pragma GCC optimize("O3,unroll-loops")
 // #pragma GCC target("sse,sse2,sse3,ssse3,sse4,sse4.1,sse4.2,popcnt,lzcnt,abm,bmi,bmi2,avx,avx2,tune=native") /* might go faster at the expense of breaking Windows builds, to be tested */
 
-#include <bits/stdc++.h>
+#include <iostream>
+#include <iomanip>
+#include <algorithm>
+#include <string>
+#include <map>
+#include <unordered_map>
+#include <set>
+#include <unordered_set>
+#include <functional>
 #include "network_simplex.hpp"
 #include "utils.hpp"
 
@@ -145,7 +152,6 @@ vector<vector<int>> bestGroups;
 unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
 unordered_map<string, int> nontradedUserCount;
 unordered_map<string, int> userItemCount;
-mutex SolveMutex;
 bool solve(int iteration){
     network_simplex<ll, ll> ns(2 * Items.size());
 
@@ -231,8 +237,7 @@ bool solve(int iteration){
 
     bool improvedSolution = false;
     set<string> FavoringRound;
-    SolveMutex.lock();
-    /* CRITICAL SECTION - Do any concurrent operations here */
+
     if(Settings.METRIC == Config::USERS_TRADING){
         if(Settings.VERBOSE) cerr << "iteration #" << iteration << " found " << TradingUsers.size() << " users trading." << endl;
         if(Metadata.trackedMetric < TradingUsers.size()){
@@ -255,7 +260,6 @@ bool solve(int iteration){
         }
         
     }
-    SolveMutex.unlock();
 
     return improvedSolution;
 }

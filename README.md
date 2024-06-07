@@ -54,3 +54,5 @@ All testcase files can be found in the ```/testcases``` directory. This is not a
 - Simplex solves a superset of the problem, we don't have any generic graph, it's bipartite.
 
 - If you're on Linux and your CPU supports it, you might want to experiment building with #pragma flags: ```#pragma GCC target("avx2,bmi,bmi2,popcnt,lzcnt")```
+
+- ```std::unordered_map``` can be replaced by ```__gnu_pbds::gp_hash_table```

@@ -1,6 +1,11 @@
+#pragma once
+
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <numeric>
+#include <cstdint>
+#include <cmath>
 
 struct linked_lists {
     int L, N;

@@ -27,7 +27,7 @@ public:
 
     string commandLine, inputChecksum, resultsChecksum;
     vector<string> options, customOutput;
-    pair<int, int> weededDownItems; // Optimized , Orphans
+    struct { int optimizedRealitems, deletedOrphans; } shrinked;
 
     utils::timer Timer;
     chrono::time_point<chrono::system_clock> startTime;
@@ -69,7 +69,7 @@ unordered_map<int, string> Tags; // Maps indices to tags, basically to represent
 // erase every outgoing edge from this component to a different one (particularly, not the same component).
 // After that it also erases nodes that have been left without edges, "orphans".
 void sccShrinkOptimization(){
-    vector<vector<int>> adj(2 * Items.size()), adj_rev(2 * Items.size());
+    vector<vector<int>> adj(Items.size()), adj_rev(Items.size());
     for(const auto& [key, s] : Items){
         for(auto w : s.wishlist){
             adj[s.index].push_back(w);
@@ -81,28 +81,34 @@ void sccShrinkOptimization(){
     vector<bool> used;
     function<void(int)> dfs1 = [&](int v){ used[v] = true; for(auto& u : adj[v]) if(not used[u]) dfs1(u); order.push_back(v); };
     function<void(int)> dfs2 = [&](int v){ used[v] = true; component.insert(v); for(auto& u : adj_rev[v]) if(not used[u]) dfs2(u); };
-    used.assign(2 * Items.size(), false);
-    for(int i = 0; i < 2 * Items.size(); i++) if(not used[i]) dfs1(i);
-    used.assign(2 * Items.size(), false);
+    used.assign(Items.size(), false);
+    for(int i = 0; i < Items.size(); i++) if(not used[i]) dfs1(i);
+    used.assign(Items.size(), false);
     reverse(order.begin(), order.end());
 
-    int optimizedEdges = 0;
+    int deletedRealItemsCount = 0, optimizedEdges = 0;
     for (auto v : order) if (not used[v]) {
         dfs2(v);
 
         for(auto x : component){
-            if(component.size() == 1){ Items.erase(Tags[x]); continue; } 
-            Specimen& s = Items[Tags[x]];
+            if(component.size() == 1){
+                assert(Tags[x] != "");
+                deletedRealItemsCount += Tags[x][0] != '%';
+                Items.erase(Tags[x]);
+            } else {
+                Specimen& s = Items[Tags[x]];
 
-            vector<int> temp;
-            for(auto w : s.wishlist){
-                if(component.count(w)){ // Only keep edges within the SCC
-                    temp.push_back(w);
-                } else {
-                    optimizedEdges++;
+                vector<int> temp;
+                for(auto w : s.wishlist){
+                    if(component.count(w)){ // Only keep edges within the SCC
+                        temp.push_back(w);
+                    } else {
+                        optimizedEdges++;
+                    }
                 }
+                s.wishlist = temp;
             }
-            s.wishlist = temp;
+            
         }
         component.clear();
     }
@@ -116,7 +122,8 @@ void sccShrinkOptimization(){
         else it++;
     }
 
-    Metadata.weededDownItems = {optimizedEdges, deletedOrphans.size()};
+    Metadata.shrinked.optimizedRealitems = Metadata.totalRealItems - deletedRealItemsCount;
+    Metadata.shrinked.deletedOrphans     = deletedOrphans.size();
 
     // Re-index nodes
     int total = 0;
@@ -277,7 +284,7 @@ void formatOutput(ostream& out){
     out << "Options: "; for(const auto &o : Metadata.options) out << o << ' ';
     out << "\n\n";
     out << "Input Checksum: " << Metadata.inputChecksum << '\n';
-    out << "Weeded down number of items: " << Metadata.weededDownItems.first << " (" << Metadata.weededDownItems.second << " orphans)";
+    out << "Weeded down number of items: " << Metadata.shrinked.optimizedRealitems << " (" << Metadata.shrinked.deletedOrphans << " orphans)";
     out << "\n\n";
     out << "TRADE LOOPS (" << Metadata.tradedItems << " total trades):\n\n";
 
@@ -380,8 +387,8 @@ int main(int argc, char** argv) {
             }
         }
         else if(line == "!BEGIN-OFFICIAL-NAMES"){
-            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
             while (getline(cin, line) and line != "!END-OFFICIAL-NAMES") {
+                Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
                 istringstream iss(line);
                 string tag;
                 iss >> tag; if(not Settings.CASE_SENSITIVE) utils::up(tag);

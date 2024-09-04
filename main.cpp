@@ -1,17 +1,20 @@
 #pragma GCC optimize("O3,unroll-loops")
-// #pragma GCC target("sse,sse2,sse3,ssse3,sse4,sse4.1,sse4.2,popcnt,lzcnt,abm,bmi,bmi2,avx,avx2,tune=native") /* might go faster at the expense of breaking Windows builds, to be tested */
 
-#include <iostream>
-#include <iomanip>
 #include <algorithm>
-#include <string>
-#include <map>
-#include <unordered_map>
-#include <set>
-#include <unordered_set>
+#include <chrono>
 #include <functional>
+#include <map>
+#include <iomanip>
+#include <iostream>
+#include <random>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+
 #include "network_simplex.hpp"
 #include "utils.hpp"
+#include "md5.hpp"
 
 using namespace std;
 using ll = long long;
@@ -21,10 +24,14 @@ public:
     int totalRealItems = 0, tradedItems = 0;
     ll  sumSquares = 0, trackedMetric = 0;
     size_t formattingWidth = 0;
-    vector<string> options;
+
+    string commandLine, inputChecksum, resultsChecksum;
+    vector<string> options, customOutput;
+    pair<int, int> weededDownItems; // Optimized , Orphans
 
     utils::timer Timer;
-    const string version = "0.3";
+    chrono::time_point<chrono::system_clock> startTime;
+    const string version = "0.4";
 } Metadata;
 
 static class Config {
@@ -33,7 +40,7 @@ public:
     bool ALLOW_DUMMIES , REQUIRE_COLONS, REQUIRE_USERNAMES, REQUIRE_OFFICIAL_NAMES,
         SHOW_MISSING, SHOW_WANTS, SHOW_ELAPSED_TIME,
         HIDE_LOOPS, HIDE_SUMMARY, HIDE_NONTRADES, HIDE_ERRORS, HIDE_REPEATS, HIDE_STATS,
-        SORT_BY_ITEM, CASE_SENSITIVE, VERBOSE, SHRINK_VERBOSE;
+        SORT_BY_ITEM, CASE_SENSITIVE, VERBOSE;
 
     ll SMALL_STEP = 0, BIG_STEP = 0, ITERATIONS = 1, SEED, NONTRADE_COST = 1e12, SHRINK = 0;
 } Settings;
@@ -56,7 +63,6 @@ struct Specimen {
 
 unordered_map<string, Specimen> Items; // Maps tags to the corresponding item
 unordered_map<int, string> Tags; // Maps indices to tags, basically to represent a "bidirectional map"
-
 
 // See Chris Okasaki explanation: https://boardgamegeek.com/thread/1601921/math-trade-theory-classifying-edges
 // sccShrinkOptimization() implements Kosaraju to find each SCC (strongly conected component) and then
@@ -100,7 +106,6 @@ void sccShrinkOptimization(){
         }
         component.clear();
     }
-    if(Settings.SHRINK_VERBOSE) cerr << "Deleted " << optimizedEdges << " edges between different strongly conected components." << endl;
 
     set<int> deletedOrphans;
     for(auto it = Items.begin(); it != Items.end(); ){ // Delete oprhans (nodes left without outgoing edges)
@@ -110,7 +115,8 @@ void sccShrinkOptimization(){
         }
         else it++;
     }
-    if(Settings.SHRINK_VERBOSE) cerr << "Deleted " << deletedOrphans.size() << " orphan nodes." << endl;
+
+    Metadata.weededDownItems = {optimizedEdges, deletedOrphans.size()};
 
     // Re-index nodes
     int total = 0;
@@ -146,8 +152,6 @@ void sccShrinkOptimization(){
 
 
 // solve() runs the whole sauce of solving the math trade.
-// It's been repurposed to be ran concurrently by many threads, though this function reads and doesn't write concurrent
-// data structures (i.e. Items, Tags), which is thread safe.
 vector<vector<int>> bestGroups;
 unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
 unordered_map<string, int> nontradedUserCount;
@@ -239,7 +243,7 @@ bool solve(int iteration){
     set<string> FavoringRound;
 
     if(Settings.METRIC == Config::USERS_TRADING){
-        if(Settings.VERBOSE) cerr << "iteration #" << iteration << " found " << TradingUsers.size() << " users trading." << endl;
+        cerr << "iteration #" << iteration << " found " << TradingUsers.size() << " users trading." << endl;
         if(Metadata.trackedMetric < TradingUsers.size()){
             Metadata.trackedMetric = TradingUsers.size();
             bestGroups = groups;
@@ -265,12 +269,22 @@ bool solve(int iteration){
 }
 
 void formatOutput(ostream& out){
-    vector<string> itemSummary;
     out << "FastTradeMaximizer Version " << Metadata.version << '\n';
-    out << "Options: "; for(const auto &o : Metadata.options) out << o << ' '; out << "\n\n";
+    time_t startTimeT = chrono::system_clock::to_time_t(Metadata.startTime);
+    out << "... run started: " << ctime(&startTimeT);
+    out << "... command line: " << Metadata.commandLine << '\n';
+    for(const auto& cO : Metadata.customOutput) cout << cO << '\n';
+    out << "Options: "; for(const auto &o : Metadata.options) out << o << ' ';
+    out << "\n\n";
+    out << "Input Checksum: " << Metadata.inputChecksum << '\n';
+    out << "Weeded down number of items: " << Metadata.weededDownItems.first << " (" << Metadata.weededDownItems.second << " orphans)";
+    out << "\n\n";
     out << "TRADE LOOPS (" << Metadata.tradedItems << " total trades):\n\n";
 
     sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
+
+    Metadata.resultsChecksum = md5("");
+    vector<string> itemSummary;
     for(const auto &g : bestGroups){
         for(int i = 0; i < g.size(); i++){
             // Generate trade loops
@@ -278,6 +292,7 @@ void formatOutput(ostream& out){
             const Specimen& sendTo      = Items[Tags[g[(i+1)%g.size()]]];
             const Specimen& receiveFrom = Items[Tags[g[(i-1+g.size())%g.size()]]];
 
+            Metadata.resultsChecksum = md5(Metadata.resultsChecksum + sendTo.show() + current.show());
             out << std::left << setfill(' ') << setw(Metadata.formattingWidth) << sendTo.show() << " receives " << current.show() << '\n';
 
             // Prepare item summaries
@@ -294,7 +309,8 @@ void formatOutput(ostream& out){
     sort(itemSummary.begin(), itemSummary.end());
     for(const auto &s : itemSummary) out << s << '\n';
 
-    out << '\n';
+    out << "\n\n";
+    out << "Results Checksum: " << Metadata.resultsChecksum << "\n\n";
     out << "Num trades   = " << Metadata.tradedItems << " of " << Metadata.totalRealItems << " items (" << Metadata.tradedItems * 100.0 / Metadata.totalRealItems * 1.0 << "%)\n";
     out << "Best metric  = " << Metadata.trackedMetric << '\n';
     out << "Total cost   = " << Metadata.tradedItems << " (avg 1.00)\n"; // There is no priority implemented
@@ -304,14 +320,19 @@ void formatOutput(ostream& out){
     if(Settings.SHOW_ELAPSED_TIME) out << "Elapsed time = " << Metadata.Timer.elapsed_time() << "ms" << '\n';
 }
 
-int main() {
-    string line;
+int main(int argc, char** argv) {
+    Metadata.startTime = chrono::system_clock::now();
+    Metadata.commandLine = argv[0];
 
+    string line;
     while (getline(cin, line)) {
         if(line.size() == 0) continue;
         if(line[0] == '#'){
-            if(line.size() <= 1 or line[1] != '!') continue; // Comment
+            if(line[1] == '+'){ Metadata.customOutput.push_back(line); continue; } // Custom output
+            if(line[1] != '!') continue; // Comment
+
             // Option
+            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
             istringstream iss(line);
             string option;
             iss >> option; // Discard initial "#!" stream tokens
@@ -335,7 +356,6 @@ int main() {
                 else if(option == "SORT-BY_ITEM")           Settings.SORT_BY_ITEM = true;
                 else if(option == "CASE-SENSITIVE")         Settings.CASE_SENSITIVE = true;
                 else if(option == "VERBOSE")                Settings.VERBOSE = true;
-                else if(option == "SHRINK-VERBOSE")         Settings.SHRINK_VERBOSE = true;
                 else if(option.find('=') != string::npos and 0 < option.find('=') and option.find('=') < option.size() - 1){
                     // Must be "Option=Value"
                     string name = option.substr(0, option.find('='));
@@ -355,10 +375,12 @@ int main() {
                     assert(false);
                 }
 
+                Metadata.inputChecksum = md5(Metadata.inputChecksum + option);
                 Metadata.options.push_back(option);
             }
         }
         else if(line == "!BEGIN-OFFICIAL-NAMES"){
+            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
             while (getline(cin, line) and line != "!END-OFFICIAL-NAMES") {
                 istringstream iss(line);
                 string tag;
@@ -373,6 +395,9 @@ int main() {
             }
         } else {
             // Wishlists
+            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
+            assert(line[0] == '('); // Garbage line
+            
             if(Settings.REQUIRE_OFFICIAL_NAMES) assert(Items.size() > 0); // Cannot wishlist without listing official names
             istringstream iss(line);
             string temp, username;

@@ -22,6 +22,8 @@ FastTradeMaximizer attempts to copy the original's behavior as much as possible,
 
 - For some reason installing an updated version of ```g++``` on Windows proved itself not to be as simple as doing one or two google searches. You can follow Microsoft's straightforward installation guide here: https://code.visualstudio.com/docs/cpp/config-mingw#_installing-the-mingww64-toolchain
 
+- If running the program yields the error "The code execution cannot proceed because libgcc_s_seh-1.dll was not found. Reinstalling the program may fix this problem.", you can try bypassing it by compiling with ```g++ -static -static-libgcc -static-libstdc++ main.cpp -o ftm.exe```
+
 ## Run
 
     ftm.exe < wants.txt

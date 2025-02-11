@@ -30,7 +30,7 @@ FastTradeMaximizer attempts to copy the original's behavior as much as possible,
 
 # Benchmarks
 
-All testcase files can be found in the ```/testcases``` directory. This is not an objective benchmark because I'm using some official results that were probably ran in a sligtly slower computer than mine, it's mostly a showcase of improved solutions + a lot faster. I used the following command lines to run both programs:
+All testcase files can be found in the ```/testcases``` directory. This is not an objective benchmark because I'm using some official results that were probably ran in a slightly slower computer than mine, it's mostly a showcase of improved solutions + a lot faster. I used the following command lines to run both programs:
 
     java -jar tm-threaded.jar < input.txt > output.txt
     ftm.exe < input.txt > output.txt

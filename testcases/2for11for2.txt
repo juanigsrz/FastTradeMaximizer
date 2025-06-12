@@ -1,0 +1,5 @@
+Azul -> Dominion
+Wingspan -> Catan
+TTR -> 7Wonders
+7Wonders Dominion -> Wingspan
+Catan -> Azul TTR

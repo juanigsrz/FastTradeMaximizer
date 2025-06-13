@@ -147,7 +147,6 @@ bool solve_gurobi() {
         }
         model.set(GRB_IntAttr_ModelSense, GRB_MAXIMIZE);
         model.setObjectiveN(tradeObjective, 0, 2); // Higher priority
-        model.setObjective(tradeObjective, GRB_MAXIMIZE);
 
         // Objective 2: Maximize number of users participating
         GRBLinExpr userObjective;

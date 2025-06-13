@@ -57,7 +57,7 @@ for give_ids, get_ids in wishes:
 
     model.addConstr(len(give_ids) * gp.quicksum(in_vars) == len(get_ids) * gp.quicksum(out_vars))
     combo_vars.append((in_vars, out_vars))
-    combo_labels.append(f"{' + '.join(id_to_item[o] for o in give_ids)} -> {' + '.join(id_to_item[i] for i in get_ids)}")
+    combo_labels.append(f"{' '.join(id_to_item[o] for o in give_ids)} -> {' '.join(id_to_item[i] for i in get_ids)}")
 
 in_sum = {}
 out_sum = {}

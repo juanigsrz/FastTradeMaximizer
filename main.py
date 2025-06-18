@@ -59,9 +59,9 @@ combo_labels = []
 combo_node_id = len(item_to_id)
 
 # Build model variables
-for give_ids, get_ids, N, M in wishes:
-    if len(give_ids) == len(get_ids) == 1:
-        edge_vars[(give_ids[0], get_ids[0])] = model.addVar(vtype=GRB.BINARY)
+for send_ids, take_ids, N, M in wishes:
+    if len(send_ids) == len(take_ids) == 1:
+        edge_vars[(take_ids[0], send_ids[0])] = model.addVar(vtype=GRB.BINARY)
         continue
     
     combo_id = combo_node_id
@@ -69,27 +69,29 @@ for give_ids, get_ids, N, M in wishes:
 
     in_vars, out_vars = [], []
 
-    for i in get_ids:
+    for s in send_ids:
         v = model.addVar(vtype=GRB.BINARY)
-        edge_vars[(combo_id, i)] = v
+        edge_vars[(combo_id, s)] = v
+        out_vars.append(v)
+    
+    for t in take_ids:
+        v = model.addVar(vtype=GRB.BINARY)
+        edge_vars[(t, combo_id)] = v
         in_vars.append(v)
 
-    for o in give_ids:
-        v = model.addVar(vtype=GRB.BINARY)
-        edge_vars[(o, combo_id)] = v
-        out_vars.append(v)
+    # These ensure that no individual edge is active unless the whole combo is active
+    combo_active = model.addVar(vtype=GRB.BINARY)
+    for var in in_vars + out_vars:
+        model.addConstr(var <= combo_active)
 
-    # (sum ingoing) <= M iff (sum outgoing) >= N
-    temp = model.addVar(vtype=GRB.BINARY)
-    BIG_M = len(in_vars) + len(out_vars)
-    model.addConstr(gp.quicksum(in_vars) - M <= BIG_M * (1 - temp))
-    model.addConstr(N - gp.quicksum(out_vars) <= BIG_M * (1 - temp))
+    # Total outgoing (sent) ≤ N if combo is active
+    model.addConstr(gp.quicksum(out_vars) <= N * combo_active)
 
-    model.addConstr((temp == 1) >> (gp.quicksum(in_vars) <= M))
-    model.addConstr((temp == 1) >> (gp.quicksum(out_vars) >= N))
+    # Total incoming (received) ≥ M if combo is active
+    model.addConstr(M * combo_active <= gp.quicksum(in_vars))
 
     combo_vars.append((in_vars, out_vars))
-    combo_labels.append(f"{' '.join(id_to_item[o] for o in give_ids)} -> {' '.join(id_to_item[i] for i in get_ids)}")
+    combo_labels.append(f"{' '.join(id_to_item[s] for s in send_ids)} -> {' '.join(id_to_item[t] for t in take_ids)}")
 
 in_sum = {}
 out_sum = {}
@@ -111,10 +113,18 @@ for node in real_item_ids:
 model.setObjective(gp.quicksum(edge_vars.values()), GRB.MAXIMIZE)
 model.optimize()
 
+print("\nItem usage summary:")
+for node in real_item_ids:
+    used_in = in_sum.get(node, gp.LinExpr()).getValue()
+    used_out = out_sum.get(node, gp.LinExpr()).getValue()
+    if used_in > 0 or used_out > 0:
+        print(f"{id_to_item[node]}: in={used_in}, out={used_out}")
+
+
 print("\nTrade Results:")
 for (i,j) in edge_vars:
     if edge_vars[(i,j)].X > 0.5 and i in id_to_item and j in id_to_item:
-        print(f"{id_to_item[i]} -> {id_to_item[j]}")
+        print(f"{id_to_item[j]} -> {id_to_item[i]}")
 
 for i, (in_vars, out_vars) in enumerate(combo_vars):
     if any(v.X > 0.5 for v in in_vars + out_vars):

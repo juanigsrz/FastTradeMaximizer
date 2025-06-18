@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade Graph Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .graph-container {
+            width: 100%;
+            height: 100%;
+            min-height: 600px;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            position: relative;
+        }
+        .link {
+            stroke-opacity: 0.5;
+            fill: none; /* Paths should not be filled */
+        }
+        .link.solution {
+            stroke-width: 2.5px;
+            stroke-opacity: 1;
+        }
+        .node circle {
+            stroke: #fff;
+            stroke-width: 1.5px;
+            filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.1));
+        }
+        .node text {
+            pointer-events: none;
+            font-size: 10px;
+            fill: #1e293b;
+            text-shadow: 0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-900">Trading Graph Visualizer</h1>
+            <p class="text-slate-600 mt-2">Paste your trade data below to visualize the complete graph and the solver's solution.</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div>
+                <label for="input-trades" class="block text-sm font-medium text-slate-700 mb-2">Input Trades (All Possibilities)</label>
+                <textarea id="input-trades" rows="10" class="w-full p-3 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="Paste the full list of trades from your input file here..."></textarea>
+            </div>
+            <div>
+                <label for="output-trades" class="block text-sm font-medium text-slate-700 mb-2">Output Trades (Solver's Solution)</label>
+                <textarea id="output-trades" rows="10" class="w-full p-3 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="Paste the solution trades from your output file here..."></textarea>
+            </div>
+        </div>
+
+        <div class="text-center mb-8">
+            <button id="visualize-btn" class="bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200">
+                Visualize Graph
+            </button>
+        </div>
+        
+        <div id="graph-wrapper" class="bg-white rounded-lg shadow-lg p-4">
+             <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-slate-900">Graph Visualization</h2>
+                <div id="loading-indicator" class="hidden items-center gap-2">
+                    <div class="loading-spinner"></div>
+                    <span class="text-slate-500">Rendering graph...</span>
+                </div>
+            </div>
+            <div id="graph-container" class="graph-container">
+                 <div id="placeholder" class="flex items-center justify-center h-full text-slate-400">
+                    <p>Your graph will appear here.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const visualizeBtn = document.getElementById('visualize-btn');
+            const inputTextArea = document.getElementById('input-trades');
+            const outputTextArea = document.getElementById('output-trades');
+            const graphContainer = document.getElementById('graph-container');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const placeholder = document.getElementById('placeholder');
+            
+            const sampleInput = `(1for1) Azul -> Dominion
+(1for1) Wingspan -> Catan
+(1for1) TTR -> 7Wonders
+(2for1) 7Wonders Dominion -> Wingspan
+(1for2) Catan -> Azul TTR`;
+            const sampleOutput = `Azul -> Dominion
+Wingspan -> Catan
+TTR -> 7Wonders
+7Wonders Dominion -> Wingspan
+Catan -> Azul TTR`;
+            inputTextArea.value = sampleInput;
+            outputTextArea.value = sampleOutput;
+
+            function parseTrades(rawText) {
+                if (!rawText || !rawText.trim()) return [];
+                const trades = [];
+                const lines = rawText.trim().split('\n');
+                for (const line of lines) {
+                    if (!line.includes('->')) continue;
+                    let cleanLine = line.trim();
+                    if (cleanLine.startsWith('(')) {
+                        cleanLine = cleanLine.substring(cleanLine.indexOf(')') + 1).trim();
+                    }
+                    const parts = cleanLine.split('->');
+                    if (parts.length !== 2) continue;
+                    const offers = parts[0].trim().split(/\s+/).filter(Boolean);
+                    const wants = parts[1].trim().split(/\s+/).filter(Boolean);
+                    if (offers.length > 0 && wants.length > 0) {
+                       trades.push({ offers, wants });
+                    }
+                }
+                return trades;
+            }
+
+            function buildGraphData(allTrades, solutionTrades) {
+                const nodes = new Map();
+                const links = [];
+                const tradeToString = (trade) => `${[...trade.offers].sort().join(' ')} -> ${[...trade.wants].sort().join(' ')}`;
+                const solutionSet = new Set(solutionTrades.map(tradeToString));
+
+                // --- Identify nodes that are part of the solution ---
+                const solutionNodeIds = new Set();
+                solutionTrades.forEach(trade => {
+                    trade.offers.forEach(id => solutionNodeIds.add(id));
+                    trade.wants.forEach(id => solutionNodeIds.add(id));
+                });
+
+                const addGameNode = (gameName) => {
+                    if (!nodes.has(gameName)) {
+                        // Add isSolutionNode property
+                        nodes.set(gameName, { 
+                            id: gameName,
+                            isSolutionNode: solutionNodeIds.has(gameName) 
+                        });
+                    }
+                };
+
+                for (const trade of allTrades) {
+                    const isSolution = solutionSet.has(tradeToString(trade));
+                    trade.offers.forEach(addGameNode);
+                    trade.wants.forEach(addGameNode);
+                    trade.offers.forEach(offer => {
+                        trade.wants.forEach(want => {
+                            links.push({ source: offer, target: want, isSolution });
+                        });
+                    });
+                }
+                return { nodes: Array.from(nodes.values()), links };
+            }
+
+            function renderGraph(graphData) {
+                d3.select(graphContainer).select("svg").remove();
+                placeholder.classList.add('hidden');
+                loadingIndicator.classList.remove('hidden');
+
+                setTimeout(() => {
+                    let { nodes, links } = graphData;
+                    if (nodes.length === 0) {
+                         placeholder.classList.remove('hidden');
+                         placeholder.textContent = "No valid trade data to display.";
+                         loadingIndicator.classList.add('hidden');
+                         return;
+                    }
+
+                    links.forEach(link => {
+                        const reverseLinks = links.filter(other => other.source === link.target && other.target === link.source);
+                        if (reverseLinks.length > 0) {
+                            link.isBidirectional = true;
+                        }
+                    });
+                    
+                    const width = graphContainer.clientWidth;
+                    const height = graphContainer.clientHeight;
+
+                    const svg = d3.select(graphContainer).append("svg")
+                        .attr("viewBox", [0, 0, width, height])
+                        .attr("width", width)
+                        .attr("height", height)
+                        .call(d3.zoom().on("zoom", (event) => g.attr("transform", event.transform)));
+
+                    const g = svg.append("g");
+                    
+                    const nodeRadius = 8;
+                    svg.append("defs").selectAll("marker")
+                        .data(["end-regular", "end-solution"])
+                        .join("marker")
+                            .attr("id", String)
+                            .attr("viewBox", "0 -5 10 10")
+                            .attr("refX", nodeRadius + 3)
+                            .attr("refY", 0)
+                            .attr("markerWidth", 6)
+                            .attr("markerHeight", 6)
+                            .attr("orient", "auto")
+                        .append("path")
+                            .attr("d", "M0,-5L10,0L0,5")
+                            .attr("fill", d => d === "end-solution" ? "#059669" : "#9ca3af");
+
+                    const numNodes = nodes.length;
+                    const circleRadius = Math.min(width, height) / 2.5;
+                    nodes.forEach((node, i) => {
+                        const angle = (i / numNodes) * 2 * Math.PI;
+                        node.x = width / 2 + circleRadius * Math.cos(angle);
+                        node.y = height / 2 + circleRadius * Math.sin(angle);
+                    });
+
+                    const simulation = d3.forceSimulation(nodes)
+                        .force("link", d3.forceLink(links).id(d => d.id).distance(100).strength(0.5))
+                        // --- Adjust charge force based on whether node is in solution ---
+                        .force("charge", d3.forceManyBody().strength(d => d.isSolutionNode ? -200 : -50))
+                        .force("center", d3.forceCenter(width / 2, height / 2))
+                        .force("collide", d3.forceCollide().radius(25));
+
+                    const link = g.append("g")
+                        .selectAll("path")
+                        .data(links)
+                        .join("path")
+                        .attr("class", d => d.isSolution ? "link solution" : "link")
+                        .attr("stroke", d => d.isSolution ? "#059669" : "#9ca3af")
+                        .attr("marker-end", d => d.isSolution ? "url(#end-solution)" : "url(#end-regular)");
+
+                    const node = g.append("g")
+                        .selectAll("g")
+                        .data(nodes)
+                        .join("g")
+                        .attr("class", 'node')
+                        // --- Adjust opacity based on whether node is in solution ---
+                        .attr("opacity", d => d.isSolutionNode ? 1.0 : 0.4)
+                        .call(drag(simulation));
+
+                    node.append("circle")
+                        .attr("r", nodeRadius)
+                        .attr("fill", "#3b82f6");
+                        
+                    node.append("text")
+                        .attr("x", 12)
+                        .attr("y", 4)
+                        .text(d => d.id.replace('Game_', ''));
+                    
+                    function linkPath(d) {
+                        const dx = d.target.x - d.source.x;
+                        const dy = d.target.y - d.source.y;
+                        if (d.isBidirectional) {
+                            const dr = Math.sqrt(dx * dx + dy * dy);
+                            return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+                        } else {
+                            return `M${d.source.x},${d.source.y}L${d.target.x},${d.target.y}`;
+                        }
+                    }
+
+                    simulation.on("tick", () => {
+                        link.attr("d", linkPath);
+                        node.attr("transform", d => `translate(${d.x},${d.y})`);
+                    });
+
+                    loadingIndicator.classList.add('hidden');
+                }, 50);
+            }
+
+            function drag(simulation) {
+                function dragstarted(event, d) {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                }
+                function dragged(event, d) {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                }
+                function dragended(event, d) {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }
+                return d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended);
+            }
+
+            visualizeBtn.addEventListener('click', () => {
+                const allTrades = parseTrades(inputTextArea.value);
+                const solutionTrades = parseTrades(outputTextArea.value);
+                
+                if (allTrades.length === 0) {
+                    alert("Input Trades data is empty or invalid. Please provide valid trade data.");
+                    return;
+                }
+                
+                const graphData = buildGraphData(allTrades, solutionTrades);
+                renderGraph(graphData);
+            });
+            
+            visualizeBtn.click();
+        });
+    </script>
+
+</body>
+</html>

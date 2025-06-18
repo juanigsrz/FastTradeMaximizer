@@ -4,12 +4,12 @@ from collections import Counter
 # --- Configuration ---
 # You can tweak these values to generate different kinds of test cases.
 
-NUM_BOARDGAMES = 50        # Total number of unique board games in the ecosystem.
-NUM_USERS = 10              # Number of traders participating.
-GAMES_PER_USER_MIN = 1      # Minimum number of games a user starts with.
-GAMES_PER_USER_MAX = 5     # Maximum number of games a user starts with.
-WISHES_PER_USER_MIN = 1     # Minimum number of wishlists a user will generate.
-WISHES_PER_USER_MAX = 5     # Maximum number of wishlists a user will generate.
+NUM_BOARDGAMES = 100        # Total number of unique board games in the ecosystem.
+NUM_USERS = 20              # Number of traders participating.
+GAMES_PER_USER_MIN = 5      # Minimum number of games a user starts with.
+GAMES_PER_USER_MAX = 10     # Maximum number of games a user starts with.
+WISHES_PER_USER_MIN = 4     # Minimum number of wishlists a user will generate.
+WISHES_PER_USER_MAX = 8     # Maximum number of wishlists a user will generate.
 
 # --- Hub Game Configuration ---
 NUM_HUB_GAMES = 3           # Number of special "hub" games that force multi-trades.

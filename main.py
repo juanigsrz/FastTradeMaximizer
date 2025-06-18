@@ -55,6 +55,7 @@ model = gp.Model()
 edge_vars = {}
 combo_vars = []
 combo_labels = []
+combovar_to_item = {}
 
 combo_node_id = len(item_to_id)
 
@@ -70,13 +71,17 @@ for send_ids, take_ids, N, M in wishes:
     in_vars, out_vars = [], []
 
     for s in send_ids:
-        v = model.addVar(vtype=GRB.BINARY)
+        var_name = str(s)
+        v = model.addVar(vtype=GRB.BINARY, name=var_name)
         edge_vars[(combo_id, s)] = v
+        combovar_to_item[var_name] = s
         out_vars.append(v)
     
     for t in take_ids:
-        v = model.addVar(vtype=GRB.BINARY)
+        var_name = str(t)
+        v = model.addVar(vtype=GRB.BINARY, name=var_name)
         edge_vars[(t, combo_id)] = v
+        combovar_to_item[var_name] = t
         in_vars.append(v)
 
     # These ensure that no individual edge is active unless the whole combo is active
@@ -128,4 +133,9 @@ for (i,j) in edge_vars:
 
 for i, (in_vars, out_vars) in enumerate(combo_vars):
     if any(v.X > 0.5 for v in in_vars + out_vars):
-        print(combo_labels[i])
+        sent =  [ id_to_item[combovar_to_item[v.VarName]] for v in out_vars if v.X > 0.5 ]
+        taken = [ id_to_item[combovar_to_item[v.VarName]] for v in in_vars if v.X > 0.5 ]
+
+        print(*sent, sep=' ', end='')
+        print(" -> ", end='')
+        print(*taken, sep=' ')

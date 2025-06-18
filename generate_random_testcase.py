@@ -17,14 +17,15 @@ PROB_HUB_TRADE_ATTEMPT = 0.3 # Probability of attempting to create a hub-based t
 
 # --- Regular Trade Type Probabilities ---
 # These apply to non-hub trades and should sum to 1.0
-PROB_1_FOR_1 = 0.90         # e.g., {GameA} -> {GameB}
-PROB_1_FOR_MULTI = 0.05     # e.g., {GameA} -> {GameB, GameC}
-PROB_MULTI_FOR_1 = 0.05     # e.g., {GameA, GameB} -> {GameC}
+PROB_1_FOR_1 = 0.90         # e.g., (1for1) GameA -> GameB
+PROB_1_FOR_MULTI = 0.05     # e.g., (1for2) GameA -> GameB GameC
+PROB_MULTI_FOR_1 = 0.05     # e.g., (2for1) GameA GameB -> GameC
 
 def generate_test_cases():
     """
     Main function to generate and print the board game trade wishlists,
     featuring "hub" games to guarantee multi-item trades.
+    Returns the user-to-game mapping and the list of wishlists.
     """
     # 1. Create a master list of board games and designate Hub Games
     board_games = [f"Game_{i+1}" for i in range(NUM_BOARDGAMES)]
@@ -40,7 +41,6 @@ def generate_test_cases():
     # Distribute regular games
     for user_id in user_ids:
         num_games = random.randint(GAMES_PER_USER_MIN, GAMES_PER_USER_MAX)
-        # Ensure we don't try to sample more games than exist
         if num_games > len(regular_games):
             num_games = len(regular_games)
         
@@ -49,11 +49,12 @@ def generate_test_cases():
         all_owned_games.extend(list(owned_games))
 
     # Distribute hub games to distinct users to ensure they are in play
-    users_with_hubs = random.sample(user_ids, len(hub_games))
-    for i, hub_game in enumerate(hub_games):
-        user_id = users_with_hubs[i]
-        users[user_id].add(hub_game)
-        all_owned_games.append(hub_game)
+    if len(user_ids) >= len(hub_games):
+        users_with_hubs = random.sample(user_ids, len(hub_games))
+        for i, hub_game in enumerate(hub_games):
+            user_id = users_with_hubs[i]
+            users[user_id].add(hub_game)
+            all_owned_games.append(hub_game)
 
     # 3. Determine popularity for REGULAR games only
     game_popularity = Counter([g for g in all_owned_games if g in regular_games])
@@ -70,75 +71,72 @@ def generate_test_cases():
 
         for _ in range(num_wishes):
             hub_trade_made = False
-            # --- Attempt to create a HUB trade ---
             if random.random() < PROB_HUB_TRADE_ATTEMPT:
                 user_hub_haves = haves.intersection(hub_games)
                 hub_wants = potential_wants.intersection(hub_games)
 
-                # Priority 1: User has a hub game and wants to trade it away
                 if user_hub_haves:
                     hub_to_offer = random.choice(list(user_hub_haves))
-                    # Wants two desirable regular games in return
                     potential_regular_wants = [g for g in sorted_by_popularity if g in potential_wants]
                     if len(potential_regular_wants) >= 2:
                         wants = random.sample(potential_regular_wants[:len(potential_regular_wants)//2], 2)
-                        wishlists.append(f"{hub_to_offer} -> {' '.join(wants)}")
+                        wishlists.append(f"(1for2) {hub_to_offer} -> {' '.join(wants)}")
                         hub_trade_made = True
 
-                # Priority 2: User wants a hub game
                 elif hub_wants and not hub_trade_made:
                     hub_to_want = random.choice(list(hub_wants))
-                    # Offers two of their common regular games
                     user_regular_haves = [g for g in reversed(sorted_by_popularity) if g in haves]
                     if len(user_regular_haves) >= 2:
                         offers = random.sample(user_regular_haves[:len(user_regular_haves)//2], 2)
-                        wishlists.append(f"{' '.join(offers)} -> {hub_to_want}")
+                        wishlists.append(f"(2for1) {' '.join(offers)} -> {hub_to_want}")
                         hub_trade_made = True
 
-            # --- Generate a REGULAR trade if no hub trade was made ---
             if not hub_trade_made:
                 trade_type = random.random()
-                
-                # Filter to only regular games for these trades
                 haves_regular = haves.intersection(regular_games)
                 potential_wants_regular = potential_wants.intersection(regular_games)
 
                 if not haves_regular or not potential_wants_regular:
                     continue
 
-                # --- 1-for-Multi ---
                 if trade_type < PROB_1_FOR_MULTI:
                     if len(potential_wants_regular) < 2: continue
                     offer = random.sample(list(haves_regular), 1)
                     wants = random.sample(list(potential_wants_regular), 2)
-                    wishlists.append(f"{offer[0]} -> {' '.join(wants)}")
+                    wishlists.append(f"(1for2) {offer[0]} -> {' '.join(wants)}")
 
-                # --- Multi-for-1 ---
                 elif trade_type < PROB_1_FOR_MULTI + PROB_MULTI_FOR_1:
                     if len(haves_regular) < 2: continue
                     offers = random.sample(list(haves_regular), 2)
                     want = random.sample(list(potential_wants_regular), 1)
-                    wishlists.append(f"{' '.join(offers)} -> {want[0]}")
+                    wishlists.append(f"(2for1) {' '.join(offers)} -> {want[0]}")
 
-                # --- 1-for-1 ---
                 else:
                     offer = random.sample(list(haves_regular), 1)
                     want = random.sample(list(potential_wants_regular), 1)
-                    wishlists.append(f"{offer[0]} -> {want[0]}")
+                    wishlists.append(f"(1for1) {offer[0]} -> {want[0]}")
 
-    return wishlists
+    return users, wishlists
 
 if __name__ == "__main__":
-    # Generate the wishlists
-    generated_trades = generate_test_cases()
+    # Generate the initial user data and wishlists
+    initial_state, generated_trades = generate_test_cases()
     
-    # Print the results to the console
-    print(f"--- Generated {len(generated_trades)} Trade Wishlists ---")
-    for trade in generated_trades:
-        print(trade)
-
-    # Optional: Save to a file
-    with open("trade_testcase.txt", "w") as f:
+    output_filename = "trade_testcase.txt"
+    print(f"--- Writing test case to {output_filename} ---")
+    
+    with open(output_filename, "w") as f:
+        # Write the initial state of who owns what
+        # f.write("--- INITIAL STATE ---\n")
+        # for user, games in sorted(initial_state.items()):
+        #     # Updated format: no brackets, no commas
+        #     game_list = " ".join(sorted(list(games)))
+        #     f.write(f"{user}: {game_list}\n")
+            
+        # Write the wishlists
+        # f.write("\n--- WISHLISTS ---\n")
         for trade in generated_trades:
             f.write(trade + "\n")
-    print("\n--- Test case saved to trade_testcase.txt ---")
+            
+    print(f"--- Generated {len(generated_trades)} wishlists. ---")
+    print("--- Test case saved successfully. ---")

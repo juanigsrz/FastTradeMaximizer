@@ -1,5 +1,5 @@
-Azul -> Dominion
-Wingspan -> Catan
-TTR -> 7Wonders
-7Wonders Dominion -> Wingspan
-Catan -> Azul TTR
+(1for1) Azul -> Dominion
+(1for1) Wingspan -> Catan
+(1for1) TTR -> 7Wonders
+(2for1) 7Wonders Dominion -> Wingspan
+(1for2) Catan -> Azul TTR

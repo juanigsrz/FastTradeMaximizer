@@ -5,26 +5,50 @@ from gurobipy import GRB
 
 item_to_id = {}
 id_to_item = {}
-wishes = []
+wishes = [] # (give,take,N,M): 'give' list of games to be given, 'take' list of games to be taken, give at most 'N', take at least 'M'
 
 # Handle input
-with open(sys.argv[1], 'r') as f:
-    for line in f:
-        formattedLine = line.partition('#')[0].strip()
-        groups = [part.strip().split() for part in formattedLine.split("->")]
-        if(len(groups) > 2):
-            raise ValueError(f"Non supported amount of groups (max 2): {line}", line)
-        
-        wish = ([],[])
+def parse_file(_file):
+    with open(_file, 'r') as f:
+        for line in f:
+            formattedLine = line.partition('#')[0].strip()
+            if not formattedLine.startswith('('):
+                raise ValueError(f"Missing options: {line}")
+            
+            r = formattedLine.find(')')
+            if r == -1:
+                raise ValueError(f"Missing closing ')': {line}")
+            
+            if '->' not in formattedLine:
+                raise ValueError(f"Missing '->': {line}")
 
-        for i in range(0, len(groups)):
-            for token in groups[i]:
-                if token not in item_to_id:
-                    item_to_id[token] = len(item_to_id)
-                    id_to_item[item_to_id[token]] = token
-                wish[i].append(item_to_id[token])
+            options = formattedLine[1:r].strip().split()
+            formattedLine = formattedLine[r+1:].strip()
 
-        wishes.append(wish)
+            groups = [part.strip().split() for part in formattedLine.split("->")]
+            if(len(groups) > 2):
+                raise ValueError(f"Non supported amount of groups (max 2): {line}")
+
+            N, M = len(groups[0]), len(groups[1])
+            for opt in options:
+                match = re.fullmatch(r'(\d+)for(\d+)', opt)
+                if not match:
+                    raise ValueError(f"Option must be in 'NforM' format, e.g., '2for1': {line}")
+                N = int(match.group(1))
+                M = int(match.group(2))
+            
+            wish = ([], [], N, M)
+            for i in range(0, len(groups)):
+                for token in groups[i]:
+                    if token not in item_to_id:
+                        item_to_id[token] = len(item_to_id)
+                        id_to_item[item_to_id[token]] = token
+                    wish[i].append(item_to_id[token])
+
+            wishes.append(wish)
+
+
+parse_file(sys.argv[1])
 
 model = gp.Model()
 
@@ -35,7 +59,7 @@ combo_labels = []
 combo_node_id = len(item_to_id)
 
 # Build model variables
-for give_ids, get_ids in wishes:
+for give_ids, get_ids, N, M in wishes:
     if len(give_ids) == len(get_ids) == 1:
         edge_vars[(give_ids[0], get_ids[0])] = model.addVar(vtype=GRB.BINARY)
         continue
@@ -55,7 +79,15 @@ for give_ids, get_ids in wishes:
         edge_vars[(o, combo_id)] = v
         out_vars.append(v)
 
-    model.addConstr(len(give_ids) * gp.quicksum(in_vars) == len(get_ids) * gp.quicksum(out_vars))
+    # (sum ingoing) <= M iff (sum outgoing) >= N
+    temp = model.addVar(vtype=GRB.BINARY)
+    BIG_M = len(in_vars) + len(out_vars)
+    model.addConstr(gp.quicksum(in_vars) - M <= BIG_M * (1 - temp))
+    model.addConstr(N - gp.quicksum(out_vars) <= BIG_M * (1 - temp))
+
+    model.addConstr((temp == 1) >> (gp.quicksum(in_vars) <= M))
+    model.addConstr((temp == 1) >> (gp.quicksum(out_vars) >= N))
+
     combo_vars.append((in_vars, out_vars))
     combo_labels.append(f"{' '.join(id_to_item[o] for o in give_ids)} -> {' '.join(id_to_item[i] for i in get_ids)}")
 

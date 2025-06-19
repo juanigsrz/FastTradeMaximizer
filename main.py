@@ -86,8 +86,8 @@ for send_ids, take_ids, N, M in wishes:
 
     # These ensure that no individual edge is active unless the whole combo is active
     combo_active = model.addVar(vtype=GRB.BINARY)
-    for var in in_vars + out_vars:
-        model.addConstr(var <= combo_active)
+    model.addConstr(gp.quicksum(out_vars) <= len(out_vars) * combo_active)
+    model.addConstr(gp.quicksum(in_vars) <= len(in_vars) * combo_active)
 
     # Total outgoing (sent) ≤ N if combo is active
     model.addConstr(gp.quicksum(out_vars) <= N * combo_active)
@@ -117,13 +117,6 @@ for node in real_item_ids:
 # Solve to maximize number of edges used
 model.setObjective(gp.quicksum(edge_vars.values()), GRB.MAXIMIZE)
 model.optimize()
-
-print("\nItem usage summary:")
-for node in real_item_ids:
-    used_in = in_sum.get(node, gp.LinExpr()).getValue()
-    used_out = out_sum.get(node, gp.LinExpr()).getValue()
-    if used_in > 0 or used_out > 0:
-        print(f"{id_to_item[node]}: in={used_in}, out={used_out}")
 
 
 print("\nTrade Results:")

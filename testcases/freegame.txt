@@ -1,0 +1,3 @@
+(2for1) x y -> A
+(2for1) A B -> C
+(1for1) C -> B

@@ -89,8 +89,9 @@ for send_ids, take_ids, N, M in wishes:
     model.addConstr(gp.quicksum(out_vars) <= len(out_vars) * combo_active)
     model.addConstr(gp.quicksum(in_vars) <= len(in_vars) * combo_active)
 
-    # Total outgoing (sent) ≤ N if combo is active
+    # Total outgoing (sent) ≤ N if combo is active, make sure at least 1 item is sent
     model.addConstr(gp.quicksum(out_vars) <= N * combo_active)
+    model.addConstr(1 * combo_active <= gp.quicksum(out_vars))
 
     # Total incoming (received) ≥ M if combo is active
     model.addConstr(M * combo_active <= gp.quicksum(in_vars))

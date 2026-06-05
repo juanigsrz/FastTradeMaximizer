@@ -9,8 +9,6 @@
 #include <random>
 #include <set>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 
 #include "network_simplex.hpp"
 #include "utils.hpp"
@@ -31,7 +29,7 @@ public:
 
     utils::timer Timer;
     chrono::time_point<chrono::system_clock> startTime;
-    const string version = "0.4";
+    const string version = "0.5";
 } Metadata;
 
 static class Config {
@@ -61,8 +59,8 @@ struct Specimen {
 };
 
 
-unordered_map<string, Specimen> Items; // Maps tags to the corresponding item
-unordered_map<int, string> Tags; // Maps indices to tags, basically to represent a "bidirectional map"
+map<string, Specimen> Items; // Maps tags to the corresponding item
+map<int, string> Tags; // Maps indices to tags, basically to represent a "bidirectional map"
 
 // See Chris Okasaki explanation: https://boardgamegeek.com/thread/1601921/math-trade-theory-classifying-edges
 // sccShrinkOptimization() implements Kosaraju to find each SCC (strongly conected component) and then
@@ -127,7 +125,7 @@ void sccShrinkOptimization(){
 
     // Re-index nodes
     int total = 0;
-    unordered_map<int, int> mapping;
+    map<int, int> mapping;
     for(auto &[tag, item] : Items){
         if(not mapping.count(item.index)){
             mapping[item.index] = mapping.size();
@@ -140,7 +138,7 @@ void sccShrinkOptimization(){
         }
     }
 
-    unordered_map<int, string> newTags;
+    map<int, string> newTags;
     for(auto &[tag, item] : Items){
         item.index = mapping[item.index];
         newTags[item.index] = tag;
@@ -160,43 +158,14 @@ void sccShrinkOptimization(){
 
 // solve() runs the whole sauce of solving the math trade.
 vector<vector<int>> bestGroups;
-unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
-unordered_map<string, int> nontradedUserCount;
-unordered_map<string, int> userItemCount;
-bool solve(int iteration){
-    network_simplex<ll, ll> ns(2 * Items.size());
-
-    // Simplex supply / demand
-    for (int v = 0; v < Items.size(); v++){
-        ns.add_supply(v, 1);
-        ns.add_supply(v + Items.size(), -1);
-    } 
-
-    vector<pair<int,int>> Edges;
-
-    for(const auto &[tag, s] : Items){ // Build edges from wishlists, write over copies, not concurrent data 
-        for(const auto &sendTo : s.wishlist){
-            assert(s.index != sendTo);
-            Edges.push_back({s.index, sendTo + Items.size()});
-
-            ll cost;
-            if(s.dummy) cost = Settings.NONTRADE_COST;
-            else cost = favoredCosts.count(s.index) ? 1 - favoredCosts[s.index] : 1;
-
-            ns.add(s.index, sendTo + Items.size(), 0, 1, cost); 
-        }
-    }
-
-    for (int v = 0; v < Items.size(); v++){ // Self-matching loop idea
-        Edges.push_back({v, v + Items.size()});
-        ns.add(v, v + Items.size(), 0, 1, Settings.NONTRADE_COST);
-    }
-
-    if (ns.mincost_circulation() == 0) { // Run simplex
-        cout << "Ill-formed graph -- Input error / Critical bug\n";
-        assert(false);
-    }
-
+map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
+map<string, int> nontradedUserCount;
+map<string, int> userItemCount;
+// iterate() reads the current optimal flow, records the solution, and applies the
+// favoring heuristic. Newly-favored items get their outgoing edge costs dropped to 0
+// directly on the live solver, which is then warm-started (resolve()) for the next round.
+bool iterate(network_simplex<ll, ll>& ns, const vector<pair<int,int>>& Edges,
+             const vector<vector<int>>& outEdges, int iteration){
     map<int, int> solution; // Solution in the abstracted space of Senders and Receivers
     for (int e = 0; e < Edges.size(); e++) {
         if(ns.get_flow(e)){
@@ -238,7 +207,7 @@ bool solve(int iteration){
         }
     }
 
-    unordered_set<string> TradingUsers;
+    set<string> TradingUsers;
     for(const auto &g : groups){
         for(const auto &e : g){
             const Specimen& _left = Items[Tags[e]];
@@ -267,11 +236,13 @@ bool solve(int iteration){
                 FavoringRound.insert(s.username);
                 favoredCosts[s.index] = 1;
                 nontradedUserCount[s.username]++;
+                for(int eid : outEdges[s.index]) ns.set_cost(eid, 0); // warm-start cost drop 1 -> 0
             }
         }
         
     }
 
+    if(improvedSolution) ns.resolve(); // warm re-optimize from the current basis for the next round
     return improvedSolution;
 }
 
@@ -290,7 +261,27 @@ void formatOutput(ostream& out){
 
     sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
 
-    Metadata.resultsChecksum = md5("");
+    // Canonical results checksum: hash the set of directed trade edges in sorted order,
+    // using item identity (tag + owner) rather than the display string. This makes the
+    // checksum invariant to loop ordering, cycle rotation, and display flags like
+    // SORT-BY_ITEM -- two runs producing the same set of trades hash identically.
+    // (A genuinely different optimal matching -- ties resolved differently -- still
+    // produces a different checksum, which is correct: it is a different solution.)
+    {
+        auto identity = [](const Specimen& s){ return s.tag + '\x1f' + s.username; };
+        vector<string> tradeEdges;
+        for(const auto &g : bestGroups){
+            for(int i = 0; i < (int)g.size(); i++){
+                const Specimen& current = Items[Tags[g[i]]];
+                const Specimen& sendTo  = Items[Tags[g[(i+1)%g.size()]]];
+                tradeEdges.push_back(identity(current) + '\x1e' + identity(sendTo));
+            }
+        }
+        sort(tradeEdges.begin(), tradeEdges.end());
+        Metadata.resultsChecksum = md5("");
+        for(const auto &e : tradeEdges) Metadata.resultsChecksum = md5(Metadata.resultsChecksum + '\x1d' + e);
+    }
+
     vector<string> itemSummary;
     for(const auto &g : bestGroups){
         for(int i = 0; i < g.size(); i++){
@@ -299,7 +290,6 @@ void formatOutput(ostream& out){
             const Specimen& sendTo      = Items[Tags[g[(i+1)%g.size()]]];
             const Specimen& receiveFrom = Items[Tags[g[(i-1+g.size())%g.size()]]];
 
-            Metadata.resultsChecksum = md5(Metadata.resultsChecksum + sendTo.show() + current.show());
             out << std::left << setfill(' ') << setw(Metadata.formattingWidth) << sendTo.show() << " receives " << current.show() << '\n';
 
             // Prepare item summaries
@@ -339,7 +329,6 @@ int main(int argc, char** argv) {
             if(line[1] != '!') continue; // Comment
 
             // Option
-            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
             istringstream iss(line);
             string option;
             iss >> option; // Discard initial "#!" stream tokens
@@ -382,13 +371,11 @@ int main(int argc, char** argv) {
                     assert(false);
                 }
 
-                Metadata.inputChecksum = md5(Metadata.inputChecksum + option);
                 Metadata.options.push_back(option);
             }
         }
         else if(line == "!BEGIN-OFFICIAL-NAMES"){
             while (getline(cin, line) and line != "!END-OFFICIAL-NAMES") {
-                Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
                 istringstream iss(line);
                 string tag;
                 iss >> tag; if(not Settings.CASE_SENSITIVE) utils::up(tag);
@@ -402,7 +389,6 @@ int main(int argc, char** argv) {
             }
         } else {
             // Wishlists
-            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
             assert(line[0] == '('); // Garbage line
             
             if(Settings.REQUIRE_OFFICIAL_NAMES) assert(Items.size() > 0); // Cannot wishlist without listing official names
@@ -456,14 +442,71 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Canonical input checksum: hash the normalized parsed model in a deterministic
+    // order instead of hashing raw lines as they arrive. This makes the checksum
+    // invariant to things that don't change the trade -- line ordering (e.g. a shuffled
+    // wants file), surrounding whitespace, option ordering, and letter case when
+    // CASE-SENSITIVE is off -- while still changing whenever the actual wants change.
+    {
+        vector<string> records;
+        records.reserve(Items.size());
+        for(const auto &[tag, s] : Items){
+            vector<string> wants;
+            wants.reserve(s.wishlist.size());
+            for(int w : s.wishlist) wants.push_back(Tags[w]);
+            sort(wants.begin(), wants.end()); // wishlist order is not semantic (no priorities)
+
+            string rec = s.tag + '\x1f' + s.username + '\x1f' + (s.dummy ? '1' : '0');
+            for(const auto &w : wants) rec += '\x1f' + w;
+            records.push_back(move(rec));
+        }
+        sort(records.begin(), records.end());
+
+        vector<string> opts = Metadata.options;
+        sort(opts.begin(), opts.end());
+
+        string acc = md5("");
+        for(const auto &o : opts)    acc = md5(acc + '\x1e' + o);
+        for(const auto &r : records) acc = md5(acc + '\x1e' + r);
+        Metadata.inputChecksum = acc;
+    }
+
     sccShrinkOptimization();
 
     for(const auto &[key, s] : Items){
         if(not s.dummy) userItemCount[s.username]++;
     }
 
-    for(int i = 0; solve(i); i++);
-   
+    int N = Items.size();
+    network_simplex<ll, ll> ns(2 * N);
+    for (int v = 0; v < N; v++){ // Simplex supply / demand
+        ns.add_supply(v, 1);
+        ns.add_supply(v + N, -1);
+    }
+
+    vector<pair<int,int>> Edges;     // edge id -> (sender, receiver) in the abstract space
+    vector<vector<int>> outEdges(N); // item index -> its outgoing wishlist edge ids
+    for(const auto &[tag, s] : Items){ // Build edges from wishlists, once
+        for(const auto &sendTo : s.wishlist){
+            assert(s.index != sendTo);
+            int eid = Edges.size();
+            Edges.push_back({s.index, sendTo + N});
+            ns.add(s.index, sendTo + N, 0, 1, s.dummy ? Settings.NONTRADE_COST : 1);
+            if(not s.dummy) outEdges[s.index].push_back(eid);
+        }
+    }
+    for (int v = 0; v < N; v++){ // Self-matching loop idea
+        Edges.push_back({v, v + N});
+        ns.add(v, v + N, 0, 1, Settings.NONTRADE_COST);
+    }
+
+    if(not ns.solve_initial()){ // First full solve; keeps the basis resident for warm-starting
+        cout << "Ill-formed graph -- Input error / Critical bug\n";
+        assert(false);
+    }
+
+    for(int i = 0; iterate(ns, Edges, outEdges, i); i++);
+
     // Prepare metadata
     for(const auto &v : bestGroups){
         Metadata.tradedItems += v.size();

@@ -27,6 +27,10 @@ import modal
 MAX_INPUT_BYTES = 32 * 1024 * 1024   # 32 MB; the largest bundled testcase is ~11 MB
 SOLVE_TIMEOUT_S = 60                 # hard cap on a single solve
 
+# ?input=<url> may only fetch from these hosts (on top of the public-IP SSRF guard).
+# Set to None to allow any public host; set to an empty set to disable URL fetching.
+ALLOWED_INPUT_HOSTS = {"bgg.activityclub.org", "juanigsrz.github.io"}
+
 FTM_BIN = "/app/ftm"
 
 # Build the image once: g++ + the C++ sources, compiled at image build time so
@@ -35,7 +39,7 @@ FTM_BIN = "/app/ftm"
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("g++")
-    .pip_install("fastapi[standard]")
+    .pip_install("fastapi[standard]", "httpx")
     .add_local_file("main.cpp", "/src/main.cpp", copy=True)
     .add_local_file("network_simplex.hpp", "/src/network_simplex.hpp", copy=True)
     .add_local_file("utils.hpp", "/src/utils.hpp", copy=True)
@@ -49,9 +53,14 @@ image = (
 app = modal.App("fasttrademaximizer")
 
 
-@app.function(image=image, timeout=SOLVE_TIMEOUT_S + 30, cpu=2.0, memory=2048)
+@app.function(image=image, timeout=SOLVE_TIMEOUT_S + 60, cpu=2.0, memory=2048)
 @modal.asgi_app()
 def web():
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    import httpx
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
@@ -68,15 +77,69 @@ def web():
         allow_headers=["*"],
     )
 
+    def assert_public_url(url: str):
+        # SSRF guard: http/https only, and the host must resolve to public IPs
+        # (reject loopback / private / link-local / cloud-metadata addresses).
+        p = urlparse(url)
+        if p.scheme not in ("http", "https"):
+            raise HTTPException(400, "input URL must be http or https.")
+        if not p.hostname:
+            raise HTTPException(400, "input URL has no host.")
+        if ALLOWED_INPUT_HOSTS is not None and p.hostname.lower() not in ALLOWED_INPUT_HOSTS:
+            raise HTTPException(400, f"host not allowed: {p.hostname}")
+        port = p.port or (443 if p.scheme == "https" else 80)
+        try:
+            infos = socket.getaddrinfo(p.hostname, port, proto=socket.IPPROTO_TCP)
+        except OSError:
+            raise HTTPException(400, f"cannot resolve host: {p.hostname}")
+        for *_, sockaddr in infos:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if not ip.is_global or ip.is_multicast:
+                raise HTTPException(400, f"refusing non-public address: {ip}")
+
+    async def fetch_remote(url: str) -> bytes:
+        # Re-validate every hop so a redirect can't bounce us to an internal host.
+        # verify=False: OLWLG (bgg.activityclub.org) serves an incomplete TLS chain --
+        # it omits the Let's Encrypt intermediate, so strict verification fails. The
+        # input is public, non-sensitive data and the host is allowlisted, so we accept
+        # the unverified fetch here.
+        try:
+            async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                for _ in range(4):
+                    assert_public_url(url)
+                    async with client.stream(
+                        "GET", url, headers={"User-Agent": "FastTradeMaximizer"}
+                    ) as resp:
+                        if resp.is_redirect:
+                            loc = resp.headers.get("location")
+                            if not loc:
+                                raise HTTPException(502, "redirect without Location header.")
+                            url = str(httpx.URL(url).join(loc))
+                            continue
+                        if resp.status_code != 200:
+                            raise HTTPException(502, f"fetch failed: HTTP {resp.status_code}.")
+                        buf = bytearray()
+                        async for chunk in resp.aiter_bytes():
+                            buf += chunk
+                            if len(buf) > MAX_INPUT_BYTES:
+                                raise HTTPException(413, f"remote input too large (> {MAX_INPUT_BYTES} bytes).")
+                        return bytes(buf)
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"could not fetch input URL: {e}")
+        raise HTTPException(502, "too many redirects.")
+
     @api.get("/")
     def health():
         return {"ok": True, "service": "FastTradeMaximizer"}
 
-    @api.post("/solve")
-    async def solve(request: Request):
-        body = await request.body()
+    @api.api_route("/solve", methods=["GET", "POST"])
+    async def solve(request: Request, input: str | None = None):
+        if input:
+            body = await fetch_remote(input)
+        else:
+            body = await request.body()
         if not body:
-            raise HTTPException(400, "Empty body; send the wants file as the POST body.")
+            raise HTTPException(400, "No input. Send the wants file as the body, or pass ?input=<url>.")
         if len(body) > MAX_INPUT_BYTES:
             raise HTTPException(413, f"Input too large ({len(body)} bytes > {MAX_INPUT_BYTES}).")
 

@@ -263,7 +263,27 @@ void formatOutput(ostream& out){
 
     sort(bestGroups.begin(), bestGroups.end(), [](const vector<int>& a, const vector<int>& b){ return a.size() > b.size(); }); // Format in group-size decreasing order
 
-    Metadata.resultsChecksum = md5("");
+    // Canonical results checksum: hash the set of directed trade edges in sorted order,
+    // using item identity (tag + owner) rather than the display string. This makes the
+    // checksum invariant to loop ordering, cycle rotation, and display flags like
+    // SORT-BY_ITEM -- two runs producing the same set of trades hash identically.
+    // (A genuinely different optimal matching -- ties resolved differently -- still
+    // produces a different checksum, which is correct: it is a different solution.)
+    {
+        auto identity = [](const Specimen& s){ return s.tag + '\x1f' + s.username; };
+        vector<string> tradeEdges;
+        for(const auto &g : bestGroups){
+            for(int i = 0; i < (int)g.size(); i++){
+                const Specimen& current = Items[Tags[g[i]]];
+                const Specimen& sendTo  = Items[Tags[g[(i+1)%g.size()]]];
+                tradeEdges.push_back(identity(current) + '\x1e' + identity(sendTo));
+            }
+        }
+        sort(tradeEdges.begin(), tradeEdges.end());
+        Metadata.resultsChecksum = md5("");
+        for(const auto &e : tradeEdges) Metadata.resultsChecksum = md5(Metadata.resultsChecksum + '\x1d' + e);
+    }
+
     vector<string> itemSummary;
     for(const auto &g : bestGroups){
         for(int i = 0; i < g.size(); i++){
@@ -272,7 +292,6 @@ void formatOutput(ostream& out){
             const Specimen& sendTo      = Items[Tags[g[(i+1)%g.size()]]];
             const Specimen& receiveFrom = Items[Tags[g[(i-1+g.size())%g.size()]]];
 
-            Metadata.resultsChecksum = md5(Metadata.resultsChecksum + sendTo.show() + current.show());
             out << std::left << setfill(' ') << setw(Metadata.formattingWidth) << sendTo.show() << " receives " << current.show() << '\n';
 
             // Prepare item summaries
@@ -312,7 +331,6 @@ int main(int argc, char** argv) {
             if(line[1] != '!') continue; // Comment
 
             // Option
-            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
             istringstream iss(line);
             string option;
             iss >> option; // Discard initial "#!" stream tokens
@@ -355,13 +373,11 @@ int main(int argc, char** argv) {
                     assert(false);
                 }
 
-                Metadata.inputChecksum = md5(Metadata.inputChecksum + option);
                 Metadata.options.push_back(option);
             }
         }
         else if(line == "!BEGIN-OFFICIAL-NAMES"){
             while (getline(cin, line) and line != "!END-OFFICIAL-NAMES") {
-                Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
                 istringstream iss(line);
                 string tag;
                 iss >> tag; if(not Settings.CASE_SENSITIVE) utils::up(tag);
@@ -375,7 +391,6 @@ int main(int argc, char** argv) {
             }
         } else {
             // Wishlists
-            Metadata.inputChecksum = md5(Metadata.inputChecksum + line);
             assert(line[0] == '('); // Garbage line
             
             if(Settings.REQUIRE_OFFICIAL_NAMES) assert(Items.size() > 0); // Cannot wishlist without listing official names
@@ -427,6 +442,35 @@ int main(int argc, char** argv) {
                 Items[temp].wishlist.push_back(Items[tag].index);
             }
         }
+    }
+
+    // Canonical input checksum: hash the normalized parsed model in a deterministic
+    // order instead of hashing raw lines as they arrive. This makes the checksum
+    // invariant to things that don't change the trade -- line ordering (e.g. a shuffled
+    // wants file), surrounding whitespace, option ordering, and letter case when
+    // CASE-SENSITIVE is off -- while still changing whenever the actual wants change.
+    {
+        vector<string> records;
+        records.reserve(Items.size());
+        for(const auto &[tag, s] : Items){
+            vector<string> wants;
+            wants.reserve(s.wishlist.size());
+            for(int w : s.wishlist) wants.push_back(Tags[w]);
+            sort(wants.begin(), wants.end()); // wishlist order is not semantic (no priorities)
+
+            string rec = s.tag + '\x1f' + s.username + '\x1f' + (s.dummy ? '1' : '0');
+            for(const auto &w : wants) rec += '\x1f' + w;
+            records.push_back(move(rec));
+        }
+        sort(records.begin(), records.end());
+
+        vector<string> opts = Metadata.options;
+        sort(opts.begin(), opts.end());
+
+        string acc = md5("");
+        for(const auto &o : opts)    acc = md5(acc + '\x1e' + o);
+        for(const auto &r : records) acc = md5(acc + '\x1e' + r);
+        Metadata.inputChecksum = acc;
     }
 
     sccShrinkOptimization();

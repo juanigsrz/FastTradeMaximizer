@@ -9,8 +9,6 @@
 #include <random>
 #include <set>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 
 #include "network_simplex.hpp"
 #include "utils.hpp"
@@ -31,7 +29,7 @@ public:
 
     utils::timer Timer;
     chrono::time_point<chrono::system_clock> startTime;
-    const string version = "0.4";
+    const string version = "0.5";
 } Metadata;
 
 static class Config {
@@ -61,8 +59,8 @@ struct Specimen {
 };
 
 
-unordered_map<string, Specimen> Items; // Maps tags to the corresponding item
-unordered_map<int, string> Tags; // Maps indices to tags, basically to represent a "bidirectional map"
+map<string, Specimen> Items; // Maps tags to the corresponding item
+map<int, string> Tags; // Maps indices to tags, basically to represent a "bidirectional map"
 
 // See Chris Okasaki explanation: https://boardgamegeek.com/thread/1601921/math-trade-theory-classifying-edges
 // sccShrinkOptimization() implements Kosaraju to find each SCC (strongly conected component) and then
@@ -127,7 +125,7 @@ void sccShrinkOptimization(){
 
     // Re-index nodes
     int total = 0;
-    unordered_map<int, int> mapping;
+    map<int, int> mapping;
     for(auto &[tag, item] : Items){
         if(not mapping.count(item.index)){
             mapping[item.index] = mapping.size();
@@ -140,7 +138,7 @@ void sccShrinkOptimization(){
         }
     }
 
-    unordered_map<int, string> newTags;
+    map<int, string> newTags;
     for(auto &[tag, item] : Items){
         item.index = mapping[item.index];
         newTags[item.index] = tag;
@@ -160,9 +158,9 @@ void sccShrinkOptimization(){
 
 // solve() runs the whole sauce of solving the math trade.
 vector<vector<int>> bestGroups;
-unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
-unordered_map<string, int> nontradedUserCount;
-unordered_map<string, int> userItemCount;
+map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
+map<string, int> nontradedUserCount;
+map<string, int> userItemCount;
 // iterate() reads the current optimal flow, records the solution, and applies the
 // favoring heuristic. Newly-favored items get their outgoing edge costs dropped to 0
 // directly on the live solver, which is then warm-started (resolve()) for the next round.
@@ -209,7 +207,7 @@ bool iterate(network_simplex<ll, ll>& ns, const vector<pair<int,int>>& Edges,
         }
     }
 
-    unordered_set<string> TradingUsers;
+    set<string> TradingUsers;
     for(const auto &g : groups){
         for(const auto &e : g){
             const Specimen& _left = Items[Tags[e]];

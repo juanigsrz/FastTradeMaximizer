@@ -34,3 +34,8 @@
 # IO
 input.txt
 output.txt
+
+# Python / Modal
+__pycache__/
+*.pyc
+.venv/

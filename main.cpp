@@ -163,40 +163,11 @@ vector<vector<int>> bestGroups;
 unordered_map<int, int> favoredCosts; // A cost reduction for nodes' outgoing edges to favor non-trading users
 unordered_map<string, int> nontradedUserCount;
 unordered_map<string, int> userItemCount;
-bool solve(int iteration){
-    network_simplex<ll, ll> ns(2 * Items.size());
-
-    // Simplex supply / demand
-    for (int v = 0; v < Items.size(); v++){
-        ns.add_supply(v, 1);
-        ns.add_supply(v + Items.size(), -1);
-    } 
-
-    vector<pair<int,int>> Edges;
-
-    for(const auto &[tag, s] : Items){ // Build edges from wishlists, write over copies, not concurrent data 
-        for(const auto &sendTo : s.wishlist){
-            assert(s.index != sendTo);
-            Edges.push_back({s.index, sendTo + Items.size()});
-
-            ll cost;
-            if(s.dummy) cost = Settings.NONTRADE_COST;
-            else cost = favoredCosts.count(s.index) ? 1 - favoredCosts[s.index] : 1;
-
-            ns.add(s.index, sendTo + Items.size(), 0, 1, cost); 
-        }
-    }
-
-    for (int v = 0; v < Items.size(); v++){ // Self-matching loop idea
-        Edges.push_back({v, v + Items.size()});
-        ns.add(v, v + Items.size(), 0, 1, Settings.NONTRADE_COST);
-    }
-
-    if (ns.mincost_circulation() == 0) { // Run simplex
-        cout << "Ill-formed graph -- Input error / Critical bug\n";
-        assert(false);
-    }
-
+// iterate() reads the current optimal flow, records the solution, and applies the
+// favoring heuristic. Newly-favored items get their outgoing edge costs dropped to 0
+// directly on the live solver, which is then warm-started (resolve()) for the next round.
+bool iterate(network_simplex<ll, ll>& ns, const vector<pair<int,int>>& Edges,
+             const vector<vector<int>>& outEdges, int iteration){
     map<int, int> solution; // Solution in the abstracted space of Senders and Receivers
     for (int e = 0; e < Edges.size(); e++) {
         if(ns.get_flow(e)){
@@ -267,11 +238,13 @@ bool solve(int iteration){
                 FavoringRound.insert(s.username);
                 favoredCosts[s.index] = 1;
                 nontradedUserCount[s.username]++;
+                for(int eid : outEdges[s.index]) ns.set_cost(eid, 0); // warm-start cost drop 1 -> 0
             }
         }
         
     }
 
+    if(improvedSolution) ns.resolve(); // warm re-optimize from the current basis for the next round
     return improvedSolution;
 }
 
@@ -462,8 +435,36 @@ int main(int argc, char** argv) {
         if(not s.dummy) userItemCount[s.username]++;
     }
 
-    for(int i = 0; solve(i); i++);
-   
+    int N = Items.size();
+    network_simplex<ll, ll> ns(2 * N);
+    for (int v = 0; v < N; v++){ // Simplex supply / demand
+        ns.add_supply(v, 1);
+        ns.add_supply(v + N, -1);
+    }
+
+    vector<pair<int,int>> Edges;     // edge id -> (sender, receiver) in the abstract space
+    vector<vector<int>> outEdges(N); // item index -> its outgoing wishlist edge ids
+    for(const auto &[tag, s] : Items){ // Build edges from wishlists, once
+        for(const auto &sendTo : s.wishlist){
+            assert(s.index != sendTo);
+            int eid = Edges.size();
+            Edges.push_back({s.index, sendTo + N});
+            ns.add(s.index, sendTo + N, 0, 1, s.dummy ? Settings.NONTRADE_COST : 1);
+            if(not s.dummy) outEdges[s.index].push_back(eid);
+        }
+    }
+    for (int v = 0; v < N; v++){ // Self-matching loop idea
+        Edges.push_back({v, v + N});
+        ns.add(v, v + N, 0, 1, Settings.NONTRADE_COST);
+    }
+
+    if(not ns.solve_initial()){ // First full solve; keeps the basis resident for warm-starting
+        cout << "Ill-formed graph -- Input error / Critical bug\n";
+        assert(false);
+    }
+
+    for(int i = 0; iterate(ns, Edges, outEdges, i); i++);
+
     // Prepare metadata
     for(const auto &v : bestGroups){
         Metadata.tradedItems += v.size();

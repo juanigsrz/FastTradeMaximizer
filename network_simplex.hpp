@@ -85,42 +85,38 @@ struct network_simplex {
 
     auto mincost_circulation() {
         static constexpr bool INFEASIBLE = false, OPTIMAL = true;
-
-        Flow sum_supply = 0;
-        for (int u = 0; u < V; u++) {
-            sum_supply += node[u].supply;
-        }
-        if (sum_supply != 0) {
+        if (!prepare()) {
             return INFEASIBLE;
         }
-        for (int e = 0; e < E; e++) {
-            if (edge[e].lower > edge[e].upper) {
-                return INFEASIBLE;
-            }
-        }
-
         init();
-        int in_arc = select_pivot_edge();
-        while (in_arc != -1) {
-            pivot(in_arc);
-            in_arc = select_pivot_edge();
-        }
+        run_simplex();
+        return finalize();
+    }
 
-        for (int e = 0; e < E; e++) {
-            auto [u, v] = edge[e].node;
-            edge[e].flow += edge[e].lower;
-            edge[e].upper += edge[e].lower;
-            node[u].supply += edge[e].lower;
-            node[v].supply -= edge[e].lower;
+    // Warm-start API.
+    //
+    // The favoring heuristic re-solves the same graph many times, changing only a
+    // handful of edge costs between rounds. Rebuilding and solving from scratch each
+    // round throws away a near-optimal basis. Instead:
+    //   solve_initial()  -> first full solve, keeps the basis + artificial arcs resident.
+    //   set_cost(e, c)   -> change an edge cost (basis stays primal-feasible: flow is
+    //                       unchanged, it still satisfies conservation).
+    //   resolve()        -> recompute potentials from the current tree, then pivot only
+    //                       the arcs the cost change turned improving. Typically a few
+    //                       pivots vs. a cold solve's many.
+    // get_flow(e) stays valid between calls because we never resize away the real arcs.
+    bool solve_initial() {
+        if (!prepare()) {
+            return false;
         }
-        for (int e = E; e < E + V; e++) {
-            if (edge[e].flow != 0) {
-                edge.resize(E);
-                return INFEASIBLE;
-            }
-        }
-        edge.resize(E);
-        return OPTIMAL;
+        init();
+        run_simplex();
+        return artificial_clear();
+    }
+    void set_cost(int e, Cost cost) { edge[e].cost = cost; }
+    void resolve() {
+        recompute_potentials();
+        run_simplex();
     }
 
   private:
@@ -148,6 +144,77 @@ struct network_simplex {
         auto [u, v] = edge[e].node;
         return edge[e].cost + node[u].pi - node[v].pi;
     }
+
+    bool prepare() {
+        Flow sum_supply = 0;
+        for (int u = 0; u < V; u++) {
+            sum_supply += node[u].supply;
+        }
+        if (sum_supply != 0) {
+            return false;
+        }
+        for (int e = 0; e < E; e++) {
+            if (edge[e].lower > edge[e].upper) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void run_simplex() {
+        int in_arc = select_pivot_edge();
+        while (in_arc != -1) {
+            pivot(in_arc);
+            in_arc = select_pivot_edge();
+        }
+    }
+
+    bool artificial_clear() const {
+        for (int e = E; e < E + V; e++) {
+            if (edge[e].flow != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Recompute node potentials from the current spanning tree so every tree arc has
+    // zero reduced cost. After a warm-start cost change the potentials may be stale
+    // (a changed tree arc breaks reduced_cost == 0); this restores consistency in O(V).
+    void recompute_potentials() {
+        int S = 0;
+        bfs[S++] = V;
+        node[V].pi = 0;
+        for (int i = 0; i < S; i++) {
+            int u = bfs[i];
+            FOR_EACH_IN_LINKED_LIST (v, u, children) {
+                int e = node[v].pred;
+                node[v].pi = edge[e].node[0] == v ? node[u].pi - edge[e].cost
+                                                  : node[u].pi + edge[e].cost;
+                bfs[S++] = v;
+            }
+        }
+    }
+
+    bool finalize() {
+        static constexpr bool INFEASIBLE = false, OPTIMAL = true;
+        for (int e = 0; e < E; e++) {
+            auto [u, v] = edge[e].node;
+            edge[e].flow += edge[e].lower;
+            edge[e].upper += edge[e].lower;
+            node[u].supply += edge[e].lower;
+            node[v].supply -= edge[e].lower;
+        }
+        for (int e = E; e < E + V; e++) {
+            if (edge[e].flow != 0) {
+                edge.resize(E);
+                return INFEASIBLE;
+            }
+        }
+        edge.resize(E);
+        return OPTIMAL;
+    }
+
     void init() {
         Cost slack_cost = 0;
 

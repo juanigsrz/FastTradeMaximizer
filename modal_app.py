@@ -158,7 +158,7 @@ def web():
         # Content-addressed cache: identical input within the TTL skips the solve.
         cache_key = hashlib.sha256(CACHE_NS.encode() + body).hexdigest()
         now = time.time()
-        hit = result_cache.get(cache_key)
+        hit = await result_cache.get.aio(cache_key)
         if hit and now - hit["ts"] < CACHE_TTL_S:
             out = gzip.decompress(hit["out"]).decode("utf-8", "replace")
             if raw:
@@ -192,7 +192,7 @@ def web():
                 },
             )
 
-        result_cache[cache_key] = {"ts": now, "ms": ms, "out": gzip.compress(out.encode("utf-8"))}
+        await result_cache.put.aio(cache_key, {"ts": now, "ms": ms, "out": gzip.compress(out.encode("utf-8"))})
 
         if raw:  # ?raw=1 -> just the solver output, plain text
             return PlainTextResponse(out)

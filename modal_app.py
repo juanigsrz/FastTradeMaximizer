@@ -18,6 +18,8 @@ into docs/index.html (the MODAL_URL field, or paste it in the page at runtime).
 
 Local dev with autoreload:  modal serve modal_app.py
 """
+import gzip
+import hashlib
 import subprocess
 import time
 
@@ -30,6 +32,12 @@ SOLVE_TIMEOUT_S = 60                 # hard cap on a single solve
 # ?input=<url> may only fetch from these hosts (on top of the public-IP SSRF guard).
 # Set to None to allow any public host; set to an empty set to disable URL fetching.
 ALLOWED_INPUT_HOSTS = {"bgg.activityclub.org", "juanigsrz.github.io"}
+
+# Result cache: serve a previously computed result for the same input within this
+# window. Content-addressed (keyed on the input bytes), so a changed file misses.
+# Bump CACHE_NS when the solver changes so old entries are ignored.
+CACHE_TTL_S = 7 * 24 * 3600
+CACHE_NS = "ftm-0.5"
 
 FTM_BIN = "/app/ftm"
 
@@ -51,6 +59,10 @@ image = (
 )
 
 app = modal.App("fasttrademaximizer")
+
+# Managed key-value store: persists across invocations, costs only storage (no idle
+# compute), and the function still scales to zero.
+result_cache = modal.Dict.from_name("ftm-result-cache", create_if_missing=True)
 
 
 @app.function(image=image, timeout=SOLVE_TIMEOUT_S + 60, cpu=2.0, memory=2048)
@@ -143,6 +155,16 @@ def web():
         if len(body) > MAX_INPUT_BYTES:
             raise HTTPException(413, f"Input too large ({len(body)} bytes > {MAX_INPUT_BYTES}).")
 
+        # Content-addressed cache: identical input within the TTL skips the solve.
+        cache_key = hashlib.sha256(CACHE_NS.encode() + body).hexdigest()
+        now = time.time()
+        hit = result_cache.get(cache_key)
+        if hit and now - hit["ts"] < CACHE_TTL_S:
+            out = gzip.decompress(hit["out"]).decode("utf-8", "replace")
+            if raw:
+                return PlainTextResponse(out)
+            return JSONResponse({"ok": True, "ms": hit["ms"], "output": out, "log": "", "cached": True})
+
         started = time.time()
         try:
             proc = subprocess.run(
@@ -170,8 +192,10 @@ def web():
                 },
             )
 
+        result_cache[cache_key] = {"ts": now, "ms": ms, "out": gzip.compress(out.encode("utf-8"))}
+
         if raw:  # ?raw=1 -> just the solver output, plain text
             return PlainTextResponse(out)
-        return JSONResponse({"ok": True, "ms": ms, "output": out, "log": log})
+        return JSONResponse({"ok": True, "ms": ms, "output": out, "log": log, "cached": False})
 
     return api

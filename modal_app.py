@@ -63,7 +63,7 @@ def web():
     import httpx
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, PlainTextResponse
 
     api = FastAPI(title="FastTradeMaximizer")
 
@@ -133,7 +133,7 @@ def web():
         return {"ok": True, "service": "FastTradeMaximizer"}
 
     @api.api_route("/solve", methods=["GET", "POST"])
-    async def solve(request: Request, input: str | None = None):
+    async def solve(request: Request, input: str | None = None, raw: bool = False):
         if input:
             body = await fetch_remote(input)
         else:
@@ -170,6 +170,8 @@ def web():
                 },
             )
 
+        if raw:  # ?raw=1 -> just the solver output, plain text
+            return PlainTextResponse(out)
         return JSONResponse({"ok": True, "ms": ms, "output": out, "log": log})
 
     return api

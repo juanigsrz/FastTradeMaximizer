@@ -35,13 +35,13 @@ All testcase files can be found in the ```/testcases``` directory. This is not a
     java -jar tm-threaded.jar < input.txt > output.txt
     ftm.exe < input.txt > output.txt
 
-| Testcase    | TradeMaximizer Version 1.5c multi-threaded                               | FastTradeMaximizer Version 0.3                     |
+| Testcase    | TradeMaximizer Version 1.5c multi-threaded                               | FastTradeMaximizer Version 0.5                     |
 |-------------|--------------------------------------------------------------------------|----------------------------------------------------|
-| ARG2024May  | 421 users in 1 iteration after 259650ms (4min 19sec 650ms)               | 427 users after 35941ms (35sec 941ms)              |
-| US2024Jan   | 300 users in 72 iterations after 4341261ms (1hrs 12min 21sec 261ms)      | 313 users in 16999ms (16sec 999ms)                 |
-| US2024Feb   | 222 users in 72 iterations after 1211105ms (20min 11sec 105ms)           | 230 users in 15609ms (15sec 609ms)                 |
-| US2024Apr   | 241 users in 72 iterations after 2633036ms (43min 53sec 36ms)            | 250 users in 42214ms (42sec 214ms)                  |
-| US2024May   | 251 users in 72 iterations after 3685621ms (1hrs 1min 25sec 621ms)       | 257 users in 33832ms (33sec 832ms)                 |
+| ARG2024May  | 421 users in 1 iteration after 259650ms (4min 19sec 650ms)               | 427 users after 4919ms (~5sec)                     |
+| US2024Jan   | 300 users in 72 iterations after 4341261ms (1hrs 12min 21sec 261ms)      | 313 users after 3134ms (~3sec)                     |
+| US2024Feb   | 222 users in 72 iterations after 1211105ms (20min 11sec 105ms)           | 230 users after 2086ms (~2sec)                     |
+| US2024Apr   | 241 users in 72 iterations after 2633036ms (43min 53sec 36ms)            | 250 users after 3074ms (~3sec)                     |
+| US2024May   | 251 users in 72 iterations after 3685621ms (1hrs 1min 25sec 621ms)       | 257 users after 3982ms (~4sec)                     |
 
 # Additional comments
 
@@ -51,10 +51,9 @@ All testcase files can be found in the ```/testcases``` directory. This is not a
 
 - Priorities seem a bit useless so they were not implemented, they can be included by tweaking edges' $\texttt{cost}$. Just remember that increasing an edge's cost makes it less prioritary than **all** other edges, not just yours.
 
-- Random generation and the program itself are completely different from the Java version, so it's impossible to reproduce the same outputs from previous Math Trades given the same $\texttt{SEED}$. However the number of maximum trades should be equal and the tracked metric should be equal or better.
+- The program itself is completely different from the Java version, so it's impossible to reproduce the same outputs from previous Math Trades. However the number of maximum trades should be equal and the tracked metric should be equal or better.
 
 - Simplex solves a superset of the problem, we don't have any generic graph, it's bipartite.
 
 - If you're on Linux and your CPU supports it, you might want to experiment building with #pragma flags: ```#pragma GCC target("avx2,bmi,bmi2,popcnt,lzcnt")```
 
-- ```std::unordered_map``` can be replaced by ```__gnu_pbds::gp_hash_table```

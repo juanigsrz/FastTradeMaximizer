@@ -6,7 +6,7 @@ a fraction of users get finite (tight) budgets, and cross-user cash bids are add
 Tight budgets + many bids stress the NP-hard budget-knapsack part of the MIP.
 
 Usage:
-    python generate_testcase.py --users 100 --items 8 --wants 8 --money 0.5 --seed 1 --out inst.txt
+    python generate_testcase.py --users 100 --items 8 --wants 8 --money 0.5 --bundle 0.4 --seed 1 --out inst.txt
 """
 import argparse
 import random

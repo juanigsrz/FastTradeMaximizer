@@ -1,4 +1,5 @@
 import sys
+import os
 import re
 import highspy
 
@@ -187,32 +188,40 @@ for node in real_item_ids:
     ins = in_terms.get(node, [])
     outs = out_terms.get(node, [])
     if ins and outs:
-        h.addConstr(sum(ins) == sum(outs))
+        h.addConstr(h.qsum(ins) == h.qsum(outs))
     elif ins:
-        h.addConstr(sum(ins) == 0)   # given but no swap wants it -> can only leave via cash
+        h.addConstr(h.qsum(ins) == 0)   # given but no swap wants it -> can only leave via cash
     elif outs:
-        h.addConstr(sum(outs) == 0)  # wanted but never offered for swap
+        h.addConstr(h.qsum(outs) == 0)  # wanted but never offered for swap
     if ins:
-        h.addConstr(sum(ins) <= 1)
+        h.addConstr(h.qsum(ins) <= 1)
     if node in buy_terms:
-        h.addConstr(sum(outs) + sum(buy_terms[node]) <= 1)
+        h.addConstr(h.qsum(outs) + h.qsum(buy_terms[node]) <= 1)
+
+# Bucket buys and items by user once, so the budget build is linear instead of O(users^2).
+buys_by_user = {}    # user -> list of (item_id, var)
+for (u, iid), v in buy.items():
+    buys_by_user.setdefault(u, []).append((iid, v))
+items_by_owner = {}  # user -> list of item_id
+for iid, o in owner.items():
+    items_by_owner.setdefault(o, []).append(iid)
 
 # Per-user net budget: spend (swap receipts + cash buys) minus earnings (own items leaving) <= X_u
 spend_data = {}  # user -> list of (coeff, var) for reporting
 earn_data = {}   # user -> list of (coeff, var) for reporting
 for u in users:
     spend = [(c, v) for (c, v) in spend_swap.get(u, []) if c]
-    spend += [(ask.get(iid, 0), v) for (uu, iid), v in buy.items() if uu == u and ask.get(iid, 0)]
+    spend += [(ask.get(iid, 0), v) for (iid, v) in buys_by_user.get(u, []) if ask.get(iid, 0)]
     earn = []
-    for iid, o in owner.items():
+    for iid in items_by_owner.get(u, []):
         z = ask.get(iid, 0)
-        if o == u and z:
+        if z:
             earn += [(z, v) for v in in_terms.get(iid, [])]
             earn += [(z, v) for v in buy_terms.get(iid, [])]
     spend_data[u] = spend
     earn_data[u] = earn
     if u in budget and (spend or earn):
-        lhs = sum(c * v for c, v in spend) - sum(c * v for c, v in earn)
+        lhs = h.qsum(c * v for c, v in spend) - h.qsum(c * v for c, v in earn)
         h.addConstr(lhs <= budget[u])
 
 # Maximize total trades (swap item-moves + cash purchases); tie-break toward barter swaps so a
@@ -220,15 +229,36 @@ for u in users:
 swaps = list(edge_vars.values())
 buys = list(buy.values())
 eps = 1.0 / (len(swaps) + 1) if swaps else 0.0
-h.maximize(sum(buys) + sum((1.0 + eps) * s for s in swaps))
+
+_time_limit = os.environ.get("FTM_TIME_LIMIT")
+if _time_limit:
+    h.setOptionValue("time_limit", float(_time_limit))
+
+h.maximize(h.qsum(buys) + h.qsum((1.0 + eps) * s for s in swaps))
 
 status = h.modelStatusToString(h.getModelStatus())
 if status != "Optimal":
     print(f"WARNING: solver status is {status}", file=sys.stderr)
 
+if os.environ.get("FTM_STATS"):
+    print(
+        f"STATS swap_vars={len(swaps)} buy_vars={len(buys)} combos={len(combo_records)} "
+        f"items={len(real_item_ids)} status={status} obj={h.getObjectiveValue():.0f} "
+        f"runtime={h.getRunTime():.3f}",
+        file=sys.stderr,
+    )
+
+
+# Fetch the whole solution once; h.val(var) re-pulls the full vector per call (O(n^2) over output).
+col_value = h.getSolution().col_value
+
+
+def value(var):
+    return col_value[var.index]
+
 
 def active(var):
-    return h.val(var) > 0.5
+    return value(var) > 0.5
 
 
 print("\nTrade Results:")
@@ -255,7 +285,7 @@ if show_money:
 
     print("\nCash Summary:")
     for u in sorted(users):
-        spent = sum(c * h.val(v) for c, v in spend_data[u])
-        earned = sum(c * h.val(v) for c, v in earn_data[u])
+        spent = sum(c * value(v) for c, v in spend_data[u])
+        earned = sum(c * value(v) for c, v in earn_data[u])
         cap = budget[u] if u in budget else "inf"
         print(f"  {u}: spent ${spent:g}, earned ${earned:g}, net ${spent - earned:g} (cap ${cap})")

@@ -1,4 +1,5 @@
 import sys
+import os
 import re
 import gurobipy as gp
 from gurobipy import GRB
@@ -97,60 +98,61 @@ def parse_file(_file):
 parse_file(sys.argv[1])
 
 model = gp.Model()
+model.Params.OutputFlag = 0
 
-edge_vars = {}
-combo_vars = []
-combovar_to_item = {}
-spend_swap = {}  # user -> LinExpr of Z_take * (take var), cash legs of swap receipts
+edge_vars = {}        # (i, j) -> binary var
+combo_records = []    # list of (in_pairs, out_pairs); pair = (item_id, var)
+spend_swap = {}       # user -> list of (Z_take, take_var): cash legs of swap receipts
+in_terms = {}         # item_id -> list of vars where the item is given away in a swap
+out_terms = {}        # item_id -> list of vars where the item is received in a swap
 
 combo_node_id = len(item_to_id)
 
 
-def add_spend_swap(u, iid, var):
-    spend_swap[u] = spend_swap.get(u, gp.LinExpr()) + ask.get(iid, 0) * var
+def add_edge(i, j, var):
+    edge_vars[(i, j)] = var
+    out_terms.setdefault(i, []).append(var)
+    in_terms.setdefault(j, []).append(var)
 
 
 # Build swap / combo variables (unchanged barter structure), recording per-user swap cash legs
 for user, send_ids, take_ids, N, M in wishes:
     if len(send_ids) == len(take_ids) == 1:
         e = model.addVar(vtype=GRB.BINARY)
-        edge_vars[(take_ids[0], send_ids[0])] = e
-        add_spend_swap(user, take_ids[0], e)
+        add_edge(take_ids[0], send_ids[0], e)
+        spend_swap.setdefault(user, []).append((ask.get(take_ids[0], 0), e))
         continue
 
     combo_id = combo_node_id
     combo_node_id += 1
 
-    in_vars, out_vars = [], []
-
+    in_pairs, out_pairs = [], []
     for s in send_ids:
-        name = str(s)
-        v = model.addVar(vtype=GRB.BINARY, name=name)
-        edge_vars[(combo_id, s)] = v
-        combovar_to_item[name] = s
-        out_vars.append(v)
-
+        v = model.addVar(vtype=GRB.BINARY)
+        add_edge(combo_id, s, v)
+        out_pairs.append((s, v))
     for t in take_ids:
-        name = str(t)
-        v = model.addVar(vtype=GRB.BINARY, name=name)
-        edge_vars[(t, combo_id)] = v
-        combovar_to_item[name] = t
-        in_vars.append(v)
-        add_spend_swap(user, t, v)
+        v = model.addVar(vtype=GRB.BINARY)
+        add_edge(t, combo_id, v)
+        in_pairs.append((t, v))
+        spend_swap.setdefault(user, []).append((ask.get(t, 0), v))
+
+    out_vars = [v for _, v in out_pairs]
+    in_vars = [v for _, v in in_pairs]
 
     # These ensure that no individual edge is active unless the whole combo is active
-    combo_active = model.addVar(vtype=GRB.BINARY)
-    model.addConstr(gp.quicksum(out_vars) <= len(out_vars) * combo_active)
-    model.addConstr(gp.quicksum(in_vars) <= len(in_vars) * combo_active)
+    active = model.addVar(vtype=GRB.BINARY)
+    model.addConstr(gp.quicksum(out_vars) <= len(out_vars) * active)
+    model.addConstr(gp.quicksum(in_vars) <= len(in_vars) * active)
 
     # Total outgoing (sent) <= N if combo is active, make sure at least 1 item is sent
-    model.addConstr(gp.quicksum(out_vars) <= N * combo_active)
-    model.addConstr(1 * combo_active <= gp.quicksum(out_vars))
+    model.addConstr(gp.quicksum(out_vars) <= N * active)
+    model.addConstr(active <= gp.quicksum(out_vars))
 
     # Total incoming (received) >= M if combo is active
-    model.addConstr(M * combo_active <= gp.quicksum(in_vars))
+    model.addConstr(M * active <= gp.quicksum(in_vars))
 
-    combo_vars.append((in_vars, out_vars))
+    combo_records.append((in_pairs, out_pairs))
 
 # Cash purchase variables: created only for bids that clear the ask and aren't self-buys
 buy = {}
@@ -162,68 +164,119 @@ for (u, iid), y in bids.items():
         continue  # don't buy your own item
     if y < ask.get(iid, 0):
         continue  # bid doesn't clear the ask -> edge filtered out
-    buy[(u, iid)] = model.addVar(vtype=GRB.BINARY, name=f"buy_{u}_{iid}")
+    buy[(u, iid)] = model.addVar(vtype=GRB.BINARY)
 
-in_sum = {}
-out_sum = {}
-for (i, j) in edge_vars:
-    out_sum[i] = out_sum.get(i, gp.LinExpr()) + edge_vars[(i, j)]
-    in_sum[j] = in_sum.get(j, gp.LinExpr()) + edge_vars[(i, j)]
+# A wish's take-item may also be acquired with cash (implicit bid, willing to pay the ask),
+# funded by the net budget. Lets a swap intent complete via a cash chain when no barter swap
+# closes -- e.g. B sells B_GAME for cash and uses the proceeds to buy its wished C_GAME.
+# Gated on money being present so pure-barter instances keep strict swap reciprocity.
+money_present = bool(ask) or bool(budget) or bool(bids)
+if money_present:
+    for user, send_ids, take_ids, N, M in wishes:
+        for t in take_ids:
+            if user == owner.get(t) or (user, t) in buy:
+                continue
+            buy[(user, t)] = model.addVar(vtype=GRB.BINARY)
 
-buy_sum = {}  # item_id -> LinExpr of sum_v buy[(v,i)]
+buy_terms = {}  # item_id -> list of buy vars
 for (u, iid), v in buy.items():
-    buy_sum[iid] = buy_sum.get(iid, gp.LinExpr()) + v
+    buy_terms.setdefault(iid, []).append(v)
 
 real_item_ids = set(item_to_id.values())
 
 # Build model constraints (swap balance kept; cash competes for the same single slot)
 for node in real_item_ids:
-    in_expr = in_sum.get(node, gp.LinExpr())
-    out_expr = out_sum.get(node, gp.LinExpr())
-    model.addConstr(in_expr == out_expr)
-    model.addConstr(in_expr <= 1)
-    if node in buy_sum:
-        model.addConstr(out_expr + buy_sum[node] <= 1)
+    ins = in_terms.get(node, [])
+    outs = out_terms.get(node, [])
+    if ins and outs:
+        model.addConstr(gp.quicksum(ins) == gp.quicksum(outs))
+    elif ins:
+        model.addConstr(gp.quicksum(ins) == 0)   # given but no swap wants it -> can only leave via cash
+    elif outs:
+        model.addConstr(gp.quicksum(outs) == 0)  # wanted but never offered for swap
+    if ins:
+        model.addConstr(gp.quicksum(ins) <= 1)
+    if node in buy_terms:
+        model.addConstr(gp.quicksum(outs) + gp.quicksum(buy_terms[node]) <= 1)
+
+# Bucket buys and items by user once, so the budget build is linear instead of O(users^2).
+buys_by_user = {}    # user -> list of (item_id, var)
+for (u, iid), v in buy.items():
+    buys_by_user.setdefault(u, []).append((iid, v))
+items_by_owner = {}  # user -> list of item_id
+for iid, o in owner.items():
+    items_by_owner.setdefault(o, []).append(iid)
 
 # Per-user net budget: spend (swap receipts + cash buys) minus earnings (own items leaving) <= X_u
-spend_expr = {}
-earn_expr = {}
+spend_data = {}  # user -> list of (coeff, var) for reporting
+earn_data = {}   # user -> list of (coeff, var) for reporting
 for u in users:
-    spend = spend_swap.get(u, gp.LinExpr())
-    for (uu, iid), v in buy.items():
-        if uu == u:
-            spend = spend + ask.get(iid, 0) * v
-    earn = gp.LinExpr()
-    for iid, o in owner.items():
-        if o == u:
-            depart = in_sum.get(iid, gp.LinExpr()) + buy_sum.get(iid, gp.LinExpr())
-            earn = earn + ask.get(iid, 0) * depart
-    spend_expr[u] = spend
-    earn_expr[u] = earn
-    if u in budget:
-        model.addConstr(spend - earn <= budget[u], name=f"netbudget_{u}")
+    spend = [(c, v) for (c, v) in spend_swap.get(u, []) if c]
+    spend += [(ask.get(iid, 0), v) for (iid, v) in buys_by_user.get(u, []) if ask.get(iid, 0)]
+    earn = []
+    for iid in items_by_owner.get(u, []):
+        z = ask.get(iid, 0)
+        if z:
+            earn += [(z, v) for v in in_terms.get(iid, [])]
+            earn += [(z, v) for v in buy_terms.get(iid, [])]
+    spend_data[u] = spend
+    earn_data[u] = earn
+    if u in budget and (spend or earn):
+        lhs = gp.quicksum(c * v for c, v in spend) - gp.quicksum(c * v for c, v in earn)
+        model.addConstr(lhs <= budget[u])
 
-# Solve to maximize number of trades (swap item-moves + cash purchases)
-model.setObjective(gp.quicksum(edge_vars.values()) + gp.quicksum(buy.values()), GRB.MAXIMIZE)
+# Maximize total trades (swap item-moves + cash purchases); tie-break toward barter swaps so a
+# pure swap is reported as a swap rather than an equivalent pair of cash purchases.
+swaps = list(edge_vars.values())
+buys = list(buy.values())
+eps = 1.0 / (len(swaps) + 1) if swaps else 0.0
+
+_time_limit = os.environ.get("FTM_TIME_LIMIT")
+if _time_limit:
+    model.Params.TimeLimit = float(_time_limit)
+
+model.setObjective(gp.quicksum(buys) + gp.quicksum((1.0 + eps) * s for s in swaps), GRB.MAXIMIZE)
 model.optimize()
+
+_STATUS = {GRB.OPTIMAL: "Optimal", GRB.TIME_LIMIT: "TimeLimit", GRB.INFEASIBLE: "Infeasible"}
+status = _STATUS.get(model.Status, f"Status{model.Status}")
+if status != "Optimal":
+    print(f"WARNING: solver status is {status}", file=sys.stderr)
+
+if os.environ.get("FTM_STATS"):
+    obj = model.ObjVal if model.SolCount > 0 else float("nan")
+    print(
+        f"STATS swap_vars={len(swaps)} buy_vars={len(buys)} combos={len(combo_records)} "
+        f"items={len(real_item_ids)} status={status} obj={obj:.0f} "
+        f"runtime={model.Runtime:.3f}",
+        file=sys.stderr,
+    )
+
+if model.SolCount == 0:
+    print("No solution found.", file=sys.stderr)
+    sys.exit(0)
+
+
+def active(var):
+    return var.X > 0.5
 
 
 print("\nTrade Results:")
-for (i, j) in edge_vars:
-    if edge_vars[(i, j)].X > 0.5 and i in id_to_item and j in id_to_item:
+for (i, j), var in edge_vars.items():
+    if active(var) and i in id_to_item and j in id_to_item:
         print(f"{id_to_item[j]} -> {id_to_item[i]}")
 
-for in_vars, out_vars in combo_vars:
-    if any(v.X > 0.5 for v in in_vars + out_vars):
-        sent = [id_to_item[combovar_to_item[v.VarName]] for v in out_vars if v.X > 0.5]
-        taken = [id_to_item[combovar_to_item[v.VarName]] for v in in_vars if v.X > 0.5]
+for in_pairs, out_pairs in combo_records:
+    if any(active(v) for _, v in in_pairs + out_pairs):
+        sent = [id_to_item[s] for s, v in out_pairs if active(v)]
+        taken = [id_to_item[t] for t, v in in_pairs if active(v)]
         print(*sent, sep=' ', end='')
         print(" -> ", end='')
         print(*taken, sep=' ')
 
 show_money = bool(buy) or bool(ask) or bool(budget)
 if show_money:
-    cash_moves = [(u, iid) for (u, iid), v in buy.items() if v.X > 0.5]
+    cash_moves = [(u, iid) for (u, iid), v in buy.items() if active(v)]
     if cash_moves:
         print("\nCash Purchases:")
         for (u, iid) in cash_moves:
@@ -232,7 +285,7 @@ if show_money:
 
     print("\nCash Summary:")
     for u in sorted(users):
-        spent = spend_expr[u].getValue()
-        earned = earn_expr[u].getValue()
+        spent = sum(c * v.X for c, v in spend_data[u])
+        earned = sum(c * v.X for c, v in earn_data[u])
         cap = budget[u] if u in budget else "inf"
         print(f"  {u}: spent ${spent:g}, earned ${earned:g}, net ${spent - earned:g} (cap ${cap})")

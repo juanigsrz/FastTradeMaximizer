@@ -31,6 +31,10 @@
 *.out
 *.app
 
+# Python
+__pycache__/
+*.pyc
+
 # IO
 input.txt
 output.txt

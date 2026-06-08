@@ -1,0 +1,12 @@
+# Money-enabled chain: A wants to buy a game from C, but it's better to pay B who can get C's game (wished by A) which increases the maximum number of trades
+user A budget 50
+user B budget 0
+user C budget 0
+item B_GAME owner B ask 20
+item C_GAME owner C ask 20
+bid A B_GAME 20
+B: (1for1) B_GAME -> C_GAME
+
+# A le manda $20 a B
+# B en vez de mandarle B_GAME directamente a A y cerrar un ciclo, le manda B_GAME + $20 a C y recibe C_GAME a cambio
+# C le manda C_GAME a A y se queda los $20

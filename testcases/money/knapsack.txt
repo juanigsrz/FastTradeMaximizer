@@ -1,0 +1,9 @@
+# T4: budget binds (Knapsack). alice (cap 20) bids on two $15 games but earns nothing,
+# so she can afford exactly one. Expect a single purchase (G1 or G2, never both). Objective 1.
+user alice budget 20
+user s1 budget 0
+user s2 budget 0
+item G1 owner s1 ask 15
+item G2 owner s2 ask 15
+bid alice G1 100
+bid alice G2 100

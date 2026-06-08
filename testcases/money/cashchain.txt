@@ -1,0 +1,12 @@
+# T2/T3: cash pass-through chain enabled by NET budget.
+# alice (cap 30) buys Catan from owen; owen (cap 0) uses that $15 to buy TtR from quinn.
+# Owen only afloat because selling Catan is credited against his $0 cap (net budget).
+# Under a SIMPLE budget owen's purchase would be infeasible and the chain breaks.
+# Expect: Catan: owen -> alice ($15), TtR: quinn -> owen ($15). owen net 0, alice net 15. Objective 2.
+user alice budget 30
+user owen budget 0
+user quinn budget 0
+item Catan owner owen ask 15
+item TtR owner quinn ask 15
+bid alice Catan 30
+bid owen TtR 15

@@ -1,0 +1,8 @@
+# T1: pure swap under Z-on-every-move. Each side pays Z and earns Z, net 0 <= cap 0.
+# Expect: A -> B, B -> A. alice net 0, bob net 0. Objective 2.
+user alice budget 0
+user bob budget 0
+item A owner alice ask 5
+item B owner bob ask 5
+alice: (1for1) A -> B
+bob: (1for1) B -> A

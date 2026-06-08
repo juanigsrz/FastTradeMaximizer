@@ -1,2 +1,2 @@
-(1for1) A -> B
-(1for1) B -> A
+alice: (1for1) A -> B
+bob: (1for1) B -> A

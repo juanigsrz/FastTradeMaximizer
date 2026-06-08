@@ -1,0 +1,7 @@
+# Bundle + money: a 2-for-1 combo swap (pat <-> rob) coexists with an independent cash buy.
+# Expect: combo fires (P Q -> R and R -> P Q), plus Gold: sam -> buyer ($20).
+user buyer budget 50
+item Gold owner sam ask 20
+bid buyer Gold 25
+pat: (2for1) P Q -> R
+rob: (1for2) R -> P Q

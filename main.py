@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import argparse
 import gurobipy as gp
 from gurobipy import GRB
 
@@ -95,7 +96,13 @@ def parse_file(_file):
                 raise ValueError(f"Unrecognized line: {raw}")
 
 
-parse_file(sys.argv[1])
+_argp = argparse.ArgumentParser()
+_argp.add_argument("file")
+_argp.add_argument("--kpi", choices=["trades", "users"], default="trades",
+                   help="objective: 'trades' = max total trades (default); "
+                        "'users' = max number of users with >= 1 trade")
+_args = _argp.parse_args()
+parse_file(_args.file)
 
 model = gp.Model()
 model.Params.OutputFlag = 0
@@ -225,17 +232,42 @@ for u in users:
         lhs = gp.quicksum(c * v for c, v in spend) - gp.quicksum(c * v for c, v in earn)
         model.addConstr(lhs <= budget[u])
 
-# Maximize total trades (swap item-moves + cash purchases); tie-break toward barter swaps so a
-# pure swap is reported as a swap rather than an equivalent pair of cash purchases.
+# Objective. Integer coefficients are essential: a fractional tie-break (e.g. weighting swaps by
+# 1+eps) blocks Gurobi's integer-bound rounding and makes proving optimality 10-60x slower.
 swaps = list(edge_vars.values())
 buys = list(buy.values())
-eps = 1.0 / (len(swaps) + 1) if swaps else 0.0
 
 _time_limit = os.environ.get("FTM_TIME_LIMIT")
 if _time_limit:
     model.Params.TimeLimit = float(_time_limit)
+if os.environ.get("FTM_MIPGAP"):
+    model.Params.MIPGap = float(os.environ["FTM_MIPGAP"])
 
-model.setObjective(gp.quicksum(buys) + gp.quicksum((1.0 + eps) * s for s in swaps), GRB.MAXIMIZE)
+# Per-user participation vars: a user participates if they receive any item (swap take or cash
+# buy) or give an owned item away (it leaves via swap or cash sale). Used for the 'users' KPI
+# and the users_traded report; skip the work when neither is requested.
+participation = {}
+if _args.kpi == "users" or os.environ.get("FTM_STATS"):
+    for u in users:
+        part = [v for _, v in spend_swap.get(u, [])]      # receive via swap
+        part += [v for _, v in buys_by_user.get(u, [])]   # receive via cash
+        for j in items_by_owner.get(u, []):               # give: an owned item leaves
+            part += in_terms.get(j, [])
+            part += buy_terms.get(j, [])
+        if part:
+            participation[u] = part
+
+if _args.kpi == "users":
+    # Maximize number of users with >= 1 trade.
+    traded = []
+    for u, part in participation.items():
+        t = model.addVar(vtype=GRB.BINARY)
+        model.addConstr(t <= gp.quicksum(part))
+        traded.append(t)
+    model.setObjective(gp.quicksum(traded), GRB.MAXIMIZE)
+else:
+    # Maximize total trades (swap item-moves + cash purchases).
+    model.setObjective(gp.quicksum(buys) + gp.quicksum(swaps), GRB.MAXIMIZE)
 model.optimize()
 
 _STATUS = {GRB.OPTIMAL: "Optimal", GRB.TIME_LIMIT: "TimeLimit", GRB.INFEASIBLE: "Infeasible"}
@@ -245,10 +277,13 @@ if status != "Optimal":
 
 if os.environ.get("FTM_STATS"):
     obj = model.ObjVal if model.SolCount > 0 else float("nan")
+    gap = model.MIPGap if model.SolCount > 0 else float("nan")
+    users_traded = (sum(1 for part in participation.values() if any(v.X > 0.5 for v in part))
+                    if model.SolCount > 0 else 0)
     print(
         f"STATS swap_vars={len(swaps)} buy_vars={len(buys)} combos={len(combo_records)} "
-        f"items={len(real_item_ids)} status={status} obj={obj:.0f} "
-        f"runtime={model.Runtime:.3f}",
+        f"items={len(real_item_ids)} users_traded={users_traded}/{len(users)} "
+        f"status={status} obj={obj:.0f} gap={gap:.4f} runtime={model.Runtime:.3f}",
         file=sys.stderr,
     )
 

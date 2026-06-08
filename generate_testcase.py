@@ -13,7 +13,7 @@ import random
 import sys
 
 
-def generate(users, items_per_user, wants, money, bundle, seed):
+def generate(users, items_per_user, wants, money, bundle, seed, bundles_per_user=-1):
     rng = random.Random(seed)
 
     owner = {}                       # item -> user index
@@ -62,24 +62,36 @@ def generate(users, items_per_user, wants, money, bundle, seed):
             lines.append(f"item {it} owner u{u}")
 
     # Wishes: each user wants items owned by others; some are N-to-M bundles.
+    # bundles_per_user >= 0 forces exactly that many bundle wishes per user (rest 1for1);
+    # otherwise the per-wish 'bundle' probability is used.
     if users >= 2:
         for u in range(users):
             if not owned[u]:
                 continue
-            for _ in range(wants):
-                r = rng.random()
-                if r < bundle and len(owned[u]) >= 2:
+            for w in range(wants):
+                if bundles_per_user >= 0:
+                    if w < bundles_per_user and len(owned[u]) >= 2:
+                        opt = "2for1" if w % 2 == 0 else "1for2"
+                    else:
+                        opt = "1for1"
+                else:
+                    r = rng.random()
+                    if r < bundle and len(owned[u]) >= 2:
+                        opt = "2for1"
+                    elif r < 2 * bundle:
+                        opt = "1for2"
+                    else:
+                        opt = "1for1"
+
+                if opt == "2for1":
                     gives = rng.sample(owned[u], 2)
                     takes = pick_others(u, 1)
-                    opt = "2for1"
-                elif r < 2 * bundle:
+                elif opt == "1for2":
                     gives = [rng.choice(owned[u])]
                     takes = pick_others(u, 2)
-                    opt = "1for2"
                 else:
                     gives = [rng.choice(owned[u])]
                     takes = pick_others(u, 1)
-                    opt = "1for1"
                 lines.append(f"u{u}: ({opt}) {' '.join(gives)} -> {' '.join(takes)}")
 
     # Explicit cross-user cash bids (above the ask so they clear).
@@ -101,11 +113,13 @@ def main():
     p.add_argument("--wants", type=int, default=8, help="wishes per user")
     p.add_argument("--money", type=float, default=0.0, help="money density 0..1")
     p.add_argument("--bundle", type=float, default=0.0, help="prob a wish is N-to-M")
+    p.add_argument("--bundles", type=int, default=-1,
+                   help="exact N-to-M bundle wishes per user (overrides --bundle if >= 0)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="-", help="output file ('-' for stdout)")
     a = p.parse_args()
 
-    text = generate(a.users, a.items, a.wants, a.money, a.bundle, a.seed)
+    text = generate(a.users, a.items, a.wants, a.money, a.bundle, a.seed, a.bundles)
     if a.out == "-":
         sys.stdout.write(text)
     else:

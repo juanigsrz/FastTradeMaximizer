@@ -109,7 +109,7 @@ model.Params.OutputFlag = 0
 
 edge_vars = {}        # (i, j) -> binary var
 combo_records = []    # list of (in_pairs, out_pairs); pair = (item_id, var)
-spend_swap = {}       # user -> list of (Z_take, take_var): cash legs of swap receipts
+spend_swap = {}       # user -> list of (take_iid, take_var): cash legs of swap receipts
 in_terms = {}         # item_id -> list of vars where the item is given away in a swap
 out_terms = {}        # item_id -> list of vars where the item is received in a swap
 
@@ -127,7 +127,7 @@ for user, send_ids, take_ids, N, M in wishes:
     if len(send_ids) == len(take_ids) == 1:
         e = model.addVar(vtype=GRB.BINARY)
         add_edge(take_ids[0], send_ids[0], e)
-        spend_swap.setdefault(user, []).append((ask.get(take_ids[0], 0), e))
+        spend_swap.setdefault(user, []).append((take_ids[0], e))
         continue
 
     combo_id = combo_node_id
@@ -142,7 +142,7 @@ for user, send_ids, take_ids, N, M in wishes:
         v = model.addVar(vtype=GRB.BINARY)
         add_edge(t, combo_id, v)
         in_pairs.append((t, v))
-        spend_swap.setdefault(user, []).append((ask.get(t, 0), v))
+        spend_swap.setdefault(user, []).append((t, v))
 
     out_vars = [v for _, v in out_pairs]
     in_vars = [v for _, v in in_pairs]
@@ -224,7 +224,7 @@ for iid, o in owner.items():
 spend_data = {}  # user -> list of (coeff, var) for reporting
 earn_data = {}   # user -> list of (coeff, var) for reporting
 for u in users:
-    spend = [(c, v) for (c, v) in spend_swap.get(u, []) if c]
+    spend = [(ask.get(iid, 0), v) for (iid, v) in spend_swap.get(u, []) if ask.get(iid, 0)]
     spend += [(ask.get(iid, 0), v) for (iid, v) in buys_by_user.get(u, []) if ask.get(iid, 0)]
     earn = []
     for iid in items_by_owner.get(u, []):
@@ -324,9 +324,69 @@ if show_money:
             o = owner[iid]
             print(f"{id_to_item[iid]}: {o} -> {u}  ({u} pays {o} ${ask.get(iid, 0)})")
 
+    # Per-user net: every active cash leg (swap take or buy) means the receiver owes
+    # ask[item] to the item's owner. spent - earned > 0 => owes, < 0 => receives.
+    net = {}
     print("\nCash Summary:")
     for u in sorted(users):
-        spent = sum(c * v.X for c, v in spend_data[u])
-        earned = sum(c * v.X for c, v in earn_data[u])
+        spent = sum(c for c, v in spend_data[u] if active(v))
+        earned = sum(c for c, v in earn_data[u] if active(v))
+        net[u] = spent - earned
         cap = budget[u] if u in budget else "inf"
-        print(f"  {u}: spent ${spent:g}, earned ${earned:g}, net ${spent - earned:g} (cap ${cap})")
+        direction = "owes" if net[u] > 0 else "receives" if net[u] < 0 else "even"
+        print(f"  {u}: spent ${spent:g}, earned ${earned:g}, "
+              f"net ${net[u]:g} ({direction}) (cap ${cap})")
+    assert sum(net.values()) == 0, "cash nets must balance to zero"
+
+    # Itemized payments: reconstruct who owes whom from the active cash legs, then net
+    # pairwise so A<->B collapses to a single directed line. Traceable to the items.
+    flows = {}  # (payer, payee) -> amount
+
+    def add_flow(payer, payee, amt):
+        if amt and payer != payee:
+            flows[(payer, payee)] = flows.get((payer, payee), 0) + amt
+
+    for u, legs in spend_swap.items():
+        for iid, v in legs:
+            if active(v):
+                add_flow(u, owner[iid], ask.get(iid, 0))
+    for (u, iid), v in buy.items():
+        if active(v):
+            add_flow(u, owner[iid], ask.get(iid, 0))
+
+    printed = set()
+    payment_lines = []
+    for (a, b) in list(flows):
+        if (a, b) in printed or (b, a) in printed:
+            continue
+        pair_net = flows.get((a, b), 0) - flows.get((b, a), 0)
+        if pair_net > 0:
+            payment_lines.append(f"  {a} pays {b} ${pair_net:g}")
+        elif pair_net < 0:
+            payment_lines.append(f"  {b} pays {a} ${-pair_net:g}")
+        printed.add((a, b))
+        printed.add((b, a))
+    if payment_lines:
+        print("\nPayments:")
+        print(*payment_lines, sep="\n")
+
+    # Settlement plan: money is fungible through the clearinghouse, so settle each
+    # user's net with the fewest transfers (greedy largest-debtor vs largest-creditor).
+    # NOTE: this pays different counterparties than Payments above; both are valid
+    # executions of the same outcome (budgets constrain nets, not pairwise flows).
+    debtors = sorted(((u, n) for u, n in net.items() if n > 0), key=lambda x: -x[1])
+    creditors = sorted(((u, -n) for u, n in net.items() if n < 0), key=lambda x: -x[1])
+    if debtors:
+        print("\nSettlement plan:")
+        i = j = 0
+        while i < len(debtors) and j < len(creditors):
+            du, dn = debtors[i]
+            cu, cn = creditors[j]
+            pay = min(dn, cn)
+            print(f"  {du} pays {cu} ${pay:g}")
+            debtors[i] = (du, dn - pay)
+            creditors[j] = (cu, cn - pay)
+            if debtors[i][1] == 0:
+                i += 1
+            if creditors[j][1] == 0:
+                j += 1

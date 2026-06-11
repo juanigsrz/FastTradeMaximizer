@@ -171,7 +171,9 @@ for (u, iid), y in bids.items():
         raise ValueError(f"Cannot bid on item '{id_to_item[iid]}' with no declared owner")
     if u == o:
         continue  # don't buy your own item
-    if y < ask.get(iid, 0):
+    if iid not in ask:
+        continue          # no ask -> not for sale
+    if y < ask[iid]:
         continue  # bid doesn't clear the ask -> edge filtered out
     buy[(u, iid)] = model.addVar(vtype=GRB.BINARY)
 
@@ -183,6 +185,8 @@ money_present = bool(ask) or bool(budget) or bool(bids)
 if money_present:
     for user, send_ids, take_ids, N, M in wishes:
         for t in take_ids:
+            if t not in ask:
+                continue          # can't implicitly buy an unlisted item
             if user == owner.get(t) or (user, t) in buy:
                 continue
             buy[(user, t)] = model.addVar(vtype=GRB.BINARY)

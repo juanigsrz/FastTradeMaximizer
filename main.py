@@ -13,6 +13,7 @@ budget = {}   # user -> X_u  (absent => +inf, unconstrained)
 owner = {}    # item_id -> user (the original owner)
 ask = {}      # item_id -> Z_i (absent => 0)
 bids = {}     # (user, item_id) -> Y_ui (max cash the user will pay)
+dup_groups = []  # list of (user, [item_id, ...]); user receives <=1 of these copies
 
 
 def intern(token):
@@ -68,6 +69,7 @@ def parse_file(_file):
             m_user = re.fullmatch(r'user\s+(\S+)\s+budget\s+(\d+)', line)
             m_item = re.fullmatch(r'item\s+(\S+)\s+owner\s+(\S+)(?:\s+ask\s+(\d+))?', line)
             m_bid = re.fullmatch(r'bid\s+(\S+)\s+(\S+)\s+(\d+)', line)
+            m_dup = re.fullmatch(r'dupcap\s+(\S+)\s+(.+)', line)
 
             if m_user:
                 users.add(m_user.group(1))
@@ -84,6 +86,10 @@ def parse_file(_file):
                 users.add(u)
                 iid = intern(m_bid.group(2))
                 bids[(u, iid)] = int(m_bid.group(3))
+            elif m_dup:
+                u = m_dup.group(1)
+                users.add(u)
+                dup_groups.append((u, [intern(t) for t in m_dup.group(2).split()]))
             elif ':' in line:
                 u, _, body = line.partition(':')
                 u = u.strip()
@@ -196,6 +202,18 @@ for (u, iid), v in buy.items():
     buy_terms.setdefault(iid, []).append(v)
 
 real_item_ids = set(item_to_id.values())
+
+# Duplicate protection: a user receives at most one copy of a protected game,
+# counting swap receipts and cash buys together. Demand-side mirror of the
+# per-item seller slot (out_sum + buys <= 1) built in the loop below.
+# Note: this excludes any combo whose take-set needs M>=2 of these protected
+# copies (it can never activate) -- the correct resolution of contradictory input.
+for u, iids in dup_groups:
+    grp = set(iids)
+    terms = [v for (it, v) in spend_swap.get(u, []) if it in grp]
+    terms += [buy[(u, it)] for it in grp if (u, it) in buy]
+    if len(terms) > 1:
+        model.addConstr(gp.quicksum(terms) <= 1)
 
 # Build model constraints (swap balance kept; cash competes for the same single slot)
 for node in real_item_ids:
